@@ -1,6 +1,11 @@
 export const state = {
     view: "chat",
     chats: [],
+    folders: [],
+    archivedCount: 0,
+    showArchived: false,
+    searchResults: null, // results while the sidebar search has text
+    jumpTo: null,        // a message to show when the next chat opens (from search)
     chat: null,          // the open chat with its messages, or null for a new one
     draft: { system_prompt: "", options: {} },
     models: [],

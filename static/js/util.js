@@ -6,6 +6,10 @@ export const ICONS = {
     key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16 7l2.5 2.5M14 9l2 2"/>',
     lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
     unlock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 7.7-1.5"/>',
+    more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
+    pin: '<path d="M9 4.5h6M10 4.5v5l-3 4h10l-3-4v-5M12 13.5v6"/>',
+    folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+    chevron: '<path d="M9.5 6l6 6-6 6"/>',
     left: '<path d="M14.5 6l-6 6 6 6"/>',
     right: '<path d="M9.5 6l6 6-6 6"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
@@ -91,4 +95,43 @@ export function copyText(text, button) {
     document.execCommand("copy");
     area.remove();
     done();
+}
+
+// A small menu that opens under a button; closes on a pick, Escape or a click elsewhere.
+let openMenuElement = null;
+
+export function closeMenu() {
+    if (openMenuElement) openMenuElement.remove();
+    openMenuElement = null;
+}
+
+export function openMenu(anchor, items) {
+    closeMenu();
+    const menu = Object.assign(document.createElement("div"), { className: "menu", role: "menu" });
+    for (const item of items) {
+        if (item === "-") {
+            menu.append(Object.assign(document.createElement("hr")));
+            continue;
+        }
+        const entry = Object.assign(document.createElement("button"), { type: "button", role: "menuitem", textContent: item.label });
+        if (item.danger) entry.classList.add("danger");
+        entry.addEventListener("click", () => { closeMenu(); item.action(); });
+        menu.append(entry);
+    }
+    document.body.append(menu);
+    const box = anchor.getBoundingClientRect();
+    const width = menu.offsetWidth, height = menu.offsetHeight;
+    menu.style.left = `${Math.max(8, Math.min(box.right - width, innerWidth - width - 8))}px`;
+    menu.style.top = `${box.bottom + 4 + height > innerHeight ? Math.max(8, box.top - height - 4) : box.bottom + 4}px`;
+    openMenuElement = menu;
+    menu.querySelector("button")?.focus();
+}
+
+document.addEventListener("pointerdown", event => {
+    if (openMenuElement && !openMenuElement.contains(event.target)) closeMenu();
+}, true);
+document.addEventListener("keydown", event => { if (event.key === "Escape") closeMenu(); });
+
+export function escapeText(text) {
+    return text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }

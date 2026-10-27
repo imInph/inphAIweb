@@ -128,7 +128,27 @@ $("signOut").addEventListener("click", async () => {
 });
 
 document.querySelectorAll("[data-pref]").forEach(field => field.addEventListener("change", () =>
-    savePrefs({ [field.dataset.pref]: field.value }, field.dataset.group)));
+    savePrefs({ [field.dataset.pref]: field.type === "checkbox" ? field.checked : field.value }, field.dataset.group)));
+
+$("importChats").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", async () => {
+    const file = $("importFile").files[0];
+    $("importFile").value = "";
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    $("importNote").textContent = "Importing...";
+    try {
+        const response = await request("/api/chats/import", { method: "POST", body: form });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Import failed");
+        $("importNote").textContent = `Imported ${result.imported} chat${result.imported === 1 ? "" : "s"}.`;
+        loadChats();
+        loadSettingsPage();
+    } catch (error) {
+        $("importNote").textContent = error.message;
+    }
+});
 $("enterSends").addEventListener("change", () => savePrefs({ enter_sends: $("enterSends").checked }, "chat"));
 document.querySelectorAll("[data-theme-choice]").forEach(choice =>
     choice.addEventListener("click", () => setTheme(choice.dataset.themeChoice)));

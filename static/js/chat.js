@@ -29,11 +29,23 @@ export async function openChat(chatId) {
             return;
         }
     }
+    // From search: show the branch with the matched message, and point at it.
+    const target = state.jumpTo;
+    state.jumpTo = null;
+    if (target && state.chat && !state.chat.messages.some(m => m.id === target)) {
+        state.chat = await api(`/api/chats/${chatId}/branch`, { method: "POST", body: { message_id: target } }).catch(() => state.chat);
+    }
     const settings = state.chat || state.draft;
     $("systemPrompt").value = settings.system_prompt;
     paintChatOptions();
     renderMessages();
     renderChatList();
+    const found = target && $("messages").querySelector(`[data-id="${target}"]`);
+    if (found) {
+        found.scrollIntoView({ block: "center" });
+        found.classList.add("flash");
+        setTimeout(() => found.classList.remove("flash"), 2000);
+    }
 }
 
 export function splitThinking(message) {
@@ -341,6 +353,11 @@ export async function send({ content = "", files = [], edit = null, replyTo = nu
         $("messages").scrollTop = $("messages").scrollHeight;
     }
     loadChats();
+    // The model writes a title after the first reply; pick it up when it's there.
+    if (state.chat.messages.length === 2 && state.me && state.me.prefs.auto_title) {
+        setTimeout(loadChats, 3000);
+        setTimeout(loadChats, 10000);
+    }
     return true;
 }
 

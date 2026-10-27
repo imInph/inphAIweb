@@ -184,6 +184,55 @@ label > span { display: block; margin-bottom: 5px; font-size: .8rem; font-weight
     text-transform: uppercase; color: var(--text-faint);
 }
 .chat-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.side-search { position: relative; display: block; margin: 0 2px 8px; }
+.side-search .ico { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
+.side-search input { padding: 7px 10px 7px 32px; border-radius: var(--radius-pill); font-size: max(16px, .86rem); }
+.list-head {
+    padding: 10px 12px 4px; font-size: .68rem; font-weight: 650; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--text-faint); border-radius: var(--radius-sm);
+}
+.list-note { padding: 8px 12px; font-size: .84rem; color: var(--text-faint); }
+.chat-list .drop { background: var(--accent-soft); outline: 1px dashed var(--accent); }
+.chat-list li.chat-item a { display: flex; align-items: center; gap: 6px; }
+.chat-list li.chat-item a span { overflow: hidden; text-overflow: ellipsis; }
+.chat-list li.chat-item a .ico { color: var(--text-faint); flex: none; }
+.chat-list li.in-folder a { padding-left: 34px; }
+.folder-head { display: flex; align-items: center; border-radius: var(--radius-sm); }
+.folder-toggle {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 7px 8px;
+    border: none; background: none; color: var(--text-dim); font: inherit; font-size: .86rem; font-weight: 560; cursor: pointer; text-align: left;
+}
+.folder-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-toggle small { color: var(--text-faint); font-size: .74rem; }
+.folder-toggle .ico:first-child { transform: rotate(90deg); transition: transform .15s; color: var(--text-faint); }
+.folder-head.collapsed .folder-toggle .ico:first-child { transform: none; }
+.folder-head .btn { visibility: hidden; }
+@media (hover: hover) { .folder-head:hover { background: var(--fill-1); } .folder-head:hover .btn { visibility: visible; } }
+.search-result a { display: flex; flex-direction: column; gap: 2px; white-space: normal !important; }
+.search-result strong { font-size: .86rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-result small { font-size: .78rem; color: var(--text-faint); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+mark { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.archived-toggle {
+    margin-top: 6px; padding: 7px 12px; border: none; background: none; color: var(--text-faint);
+    font: inherit; font-size: .8rem; text-align: left; cursor: pointer; border-radius: var(--radius-sm);
+}
+@media (hover: hover) { .archived-toggle:hover { color: var(--text); background: var(--fill-1); } }
+
+.menu {
+    position: fixed; z-index: 100; min-width: 200px; max-width: 280px; padding: 5px;
+    background: var(--glass-bg-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    display: flex; flex-direction: column;
+}
+.menu button {
+    border: none; background: none; color: var(--text); font: inherit; font-size: .86rem; text-align: left;
+    padding: 7px 10px; border-radius: var(--radius-xs); cursor: pointer;
+}
+.menu button:hover, .menu button:focus-visible { background: var(--fill-2); box-shadow: none; }
+.menu button.danger { color: var(--bad); }
+.menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
+.message.flash { animation: flash 2s var(--ease-out); }
+@keyframes flash { 0%, 40% { background: color-mix(in srgb, var(--warn) 18%, transparent); } 100% { background: transparent; } }
 .chat-list li { display: flex; align-items: center; border-radius: var(--radius-sm); }
 .chat-list li.active { background: var(--fill-2); }
 .chat-list a {

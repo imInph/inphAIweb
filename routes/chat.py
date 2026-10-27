@@ -1,7 +1,13 @@
-"""Chats, messages and their uploads."""
+"""Chats, messages and their uploads; folders, search, export and import."""
+import io
 import json
+from pathlib import Path
 import re
-from flask import Blueprint, Response, g, jsonify, request, send_from_directory, stream_with_context
+import threading
+import time
+import uuid
+import zipfile
+from flask import Blueprint, Response, g, jsonify, request, send_file, send_from_directory, stream_with_context
 import llm
 import settings
 import store
@@ -25,6 +31,16 @@ def chat_fields(data, partial=True):
         fields['system_prompt'] = data['system_prompt']
     if 'options' in data:
         fields['options'] = settings.validate_options(data['options'])
+    for flag in ('pinned', 'archived'):
+        if flag in data:
+            if type(data[flag]) is not bool:
+                raise ValueError(f'{flag} must be true or false')
+            fields[flag] = int(data[flag])
+    if 'folder_id' in data:
+        if data['folder_id'] is not None and (type(data['folder_id']) is not int
+                                              or not store.get_folder(data['folder_id'], g.user['id'])):
+            raise ValueError('folder_id must be one of your folders, or null')
+        fields['folder_id'] = data['folder_id']
     if 'backend' in data or 'model' in data or not partial:
         if data.get('backend') not in llm.BACKENDS:
             raise ValueError('backend must be ' + ' or '.join(llm.BACKENDS))
@@ -42,7 +58,9 @@ def models():
 
 @bp.get('/api/chats')
 def chats():
-    return jsonify(chats=store.list_chats(g.user['id']))
+    archived = request.args.get('archived') == '1'
+    return jsonify(chats=store.list_chats(g.user['id'], archived), folders=store.list_folders(g.user['id']),
+                   archived_count=store.count_archived(g.user['id']))
 
 
 @bp.post('/api/chats')
@@ -95,10 +113,34 @@ def history_for(chat, message_id):
     return history
 
 
+def write_title(chat_id, user_id, backend, model):
+    """Name a chat after its first exchange, in the background (unless it was renamed meanwhile)."""
+    exchange = store.first_exchange(chat_id)
+    if len(exchange) < 2:
+        return
+    first = exchange[0]['content'][:2000]
+    reply = THINK_BLOCK.sub('', exchange[1]['content']).strip()[:2000]
+    prompt = ('Write a title of 3 to 6 words for this conversation. Answer with the title only: '
+              'no quotes, no full stop.\n\nUser: ' + first + '\n\nAssistant: ' + reply)
+    try:
+        title = llm.complete(backend, model, [{'role': 'user', 'content': prompt}], {'max_tokens': 40, 'temperature': 0.3})
+    except Exception as error:
+        print(f'Could not write a title for chat {chat_id}: {error}', flush=True)
+        return
+    title = THINK_BLOCK.sub('', title).strip()
+    # The first line, without Markdown marks or quotes around it.
+    title = re.sub(r'[*_`#]', '', title.splitlines()[0]).strip(' "\'.:') if title else ''
+    chat = store.get_chat(chat_id, user_id)
+    if title and chat and chat['title'] == ' '.join(first.split())[:60]:
+        store.update_chat(chat_id, user_id, {'title': title[:80]})
+
+
 def reply_stream(chat, user_message_id, backend, model):
     """Stream one answer to user_message_id as NDJSON, saving it (even a stopped, partial one)."""
     history = history_for(chat, user_message_id)
     options = chat['options']
+    user_id = g.user['id']
+    auto_title = settings.prefs(g.user)['auto_title']
 
     def events():
         yield json.dumps({'reply_to': user_message_id}) + '\n'
@@ -112,6 +154,8 @@ def reply_stream(chat, user_message_id, backend, model):
                 yield json.dumps({kind: piece}) + '\n'
             saved = store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text), ''.join(think), model, stats)
             yield json.dumps({'done': True, 'message_id': saved}) + '\n'
+            if auto_title and store.message_count(chat['id']) == 2:
+                threading.Thread(target=write_title, args=(chat['id'], user_id, backend, model), daemon=True).start()
         except Exception as error:
             yield json.dumps({'error': llm.describe(backend, error)}) + '\n'
         finally:
@@ -236,3 +280,161 @@ def upload_file(attachment_id):
     folder, name = found['path'].split('/', 1)
     return send_from_directory(store.UPLOADS / folder, name, mimetype=found['mime'],
                                as_attachment=found['kind'] != 'image', download_name=found['name'])
+
+
+# Folders
+
+def folder_name(data):
+    name = (data or {}).get('name')
+    if not isinstance(name, str) or not name.strip() or len(name) > 80:
+        raise ValueError('A folder name is 1 to 80 characters')
+    return name.strip()
+
+
+@bp.post('/api/folders')
+def new_folder():
+    try:
+        name = folder_name(request.get_json(silent=True))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(id=store.create_folder(g.user['id'], name)), 201
+
+
+@bp.patch('/api/folders/<int:folder_id>')
+def edit_folder(folder_id):
+    if not store.get_folder(folder_id, g.user['id']):
+        return jsonify(error='No such folder'), 404
+    data = request.get_json(silent=True) or {}
+    fields = {}
+    try:
+        if 'name' in data:
+            fields['name'] = folder_name(data)
+        if 'collapsed' in data:
+            fields['collapsed'] = int(bool(data['collapsed']))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    store.update_folder(folder_id, g.user['id'], fields)
+    return jsonify(ok=True)
+
+
+@bp.delete('/api/folders/<int:folder_id>')
+def remove_folder(folder_id):
+    return ('', 204) if store.delete_folder(folder_id, g.user['id']) else (jsonify(error='No such folder'), 404)
+
+
+# Search
+
+@bp.get('/api/search')
+def search():
+    query = request.args.get('q', '')[:200]
+    return jsonify(results=store.search(g.user['id'], query))
+
+
+# Export and import
+
+def markdown(chat):
+    lines = [f"# {chat['title']}", '']
+    if chat['system_prompt'].strip():
+        lines += ['> System prompt: ' + chat['system_prompt'].strip().replace('\n', '\n> '), '']
+    for m in chat['messages']:
+        who = 'You' if m['role'] == 'user' else f"Assistant ({m['model']})" if m['model'] else 'Assistant'
+        lines += [f'## {who}', '']
+        for file in m['attachments']:
+            lines.append(f"*Attached: {file['name']}*")
+        if m['attachments']:
+            lines.append('')
+        content = THINK_BLOCK.sub('', m['content']).strip() if m['role'] == 'assistant' else m['content']
+        lines += [content, '']
+    return '\n'.join(lines)
+
+
+def safe_filename(title):
+    return (re.sub(r'[^\w\- ]+', '', title).strip() or 'chat')[:60]
+
+
+@bp.get('/api/chats/<int:chat_id>/export')
+def export_chat(chat_id):
+    kind = request.args.get('format', 'json')
+    chat = store.get_chat(chat_id, g.user['id'])
+    if chat is None:
+        return jsonify(error='No such chat'), 404
+    name = safe_filename(chat['title'])
+    if kind == 'md':
+        return Response(markdown(chat), mimetype='text/markdown',
+                        headers={'Content-Disposition': f'attachment; filename="{name}.md"'})
+    data = store.export_chat(chat_id, g.user['id'])
+    for message in data['messages']:
+        for file in message['attachments']:
+            file.pop('path')
+    return Response(json.dumps(data, indent=2), mimetype='application/json',
+                    headers={'Content-Disposition': f'attachment; filename="{name}.json"'})
+
+
+@bp.get('/api/chats/export')
+def export_all():
+    """Every chat (archived ones too) and their files, as one .zip that /api/chats/import reads back."""
+    user_id = g.user['id']
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+        chats = []
+        for listed in store.list_chats(user_id) + store.list_chats(user_id, archived=True):
+            data = store.export_chat(listed['id'], user_id)
+            for message in data['messages']:
+                for file in message['attachments']:
+                    path = store.UPLOADS / file.pop('path')
+                    if path.is_file():
+                        archive.write(path, f"files/{file['id']}/{file['name']}")
+            chats.append(data)
+        archive.writestr('chats.json', json.dumps({'format': 'inphai-chats', 'version': 1, 'chats': chats}, indent=2))
+    buffer.seek(0)
+    return send_file(buffer, mimetype='application/zip', as_attachment=True,
+                     download_name=f"inphai-chats-{time.strftime('%Y-%m-%d')}.zip")
+
+
+def valid_chat(data):
+    return (isinstance(data, dict) and data.get('format') == 'inphai-chat' and isinstance(data.get('title'), str)
+            and isinstance(data.get('messages'), list)
+            and all(isinstance(m, dict) and m.get('role') in ('user', 'assistant') and isinstance(m.get('content'), str)
+                    and isinstance(m.get('id'), int) for m in data['messages']))
+
+
+@bp.post('/api/chats/import')
+def import_chats():
+    """One chat's .json, or the .zip of all chats from export."""
+    upload = request.files.get('file')
+    if upload is None:
+        return jsonify(error='Send the file as multipart form data, field "file"'), 400
+    raw = upload.read()
+    user_id = g.user['id']
+    imported = []
+    try:
+        if raw[:2] == b'PK':
+            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                bundle = json.loads(archive.read('chats.json'))
+                if bundle.get('format') != 'inphai-chats' or not isinstance(bundle.get('chats'), list):
+                    raise ValueError('This .zip is not an inphAI chat export')
+                for data in bundle['chats']:
+                    if not valid_chat(data):
+                        raise ValueError('A chat in this export is damaged')
+                    saved = {}
+                    for message in data['messages']:
+                        for file in message.get('attachments', []):
+                            name = f"files/{file.get('id')}/{file.get('name')}"
+                            if name in archive.namelist():
+                                new_id = uuid.uuid4().hex
+                                safe = uploads.SAFE_NAME.sub('_', Path(file['name']).name) or 'file'
+                                (store.UPLOADS / new_id).mkdir(parents=True)
+                                (store.UPLOADS / new_id / safe).write_bytes(archive.read(name))
+                                saved[file['id']] = f'{new_id}/{safe}'
+                    imported.append(store.import_chat(user_id, data, saved))
+        else:
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                raise ValueError('This is not an inphAI chat export (a .json of one chat, or the .zip of all)')
+            if not valid_chat(data):
+                raise ValueError('This is not an inphAI chat export')
+            imported.append(store.import_chat(user_id, data))
+    except (ValueError, KeyError, zipfile.BadZipFile) as error:
+        return jsonify(error=str(error) if isinstance(error, ValueError) else 'Could not read that file'), 400
+    return jsonify(imported=len(imported), chat_ids=imported), 201

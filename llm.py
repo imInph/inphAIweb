@@ -153,6 +153,11 @@ def stream_ollama(model, messages, options):
                 return
 
 
+def complete(backend, model, messages, options=None):
+    """The whole reply at once, without its reasoning (for short jobs like titles)."""
+    return ''.join(piece for kind, piece in stream_chat(backend, model, messages, options) if kind == 'text')
+
+
 def unload_ollama():
     """Free the GPU for image/video work: Ollama unloads a model sent keep_alive 0."""
     try:

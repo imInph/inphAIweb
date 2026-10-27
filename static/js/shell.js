@@ -63,6 +63,18 @@ export function setTheme(theme, save = true) {
     document.querySelectorAll("[data-theme-choice]").forEach(b => b.classList.toggle("on", b.dataset.themeChoice === theme));
 }
 
+// Ctrl+K / Cmd+K: search chats.
+document.addEventListener("keydown", event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (state.view !== "chat") location.hash = "#chat";
+        document.body.classList.add("drawer-open");
+        $("backdrop").hidden = !matchMedia("(max-width: 768px)").matches;
+        $("chatSearch").focus();
+        $("chatSearch").select();
+    }
+});
+
 $("themeButton").addEventListener("click", () =>
     setTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark"));
 $("backdrop").addEventListener("click", closeDrawer);

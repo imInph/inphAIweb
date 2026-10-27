@@ -129,10 +129,41 @@ def migrate_3(db):
     db.execute('CREATE INDEX IF NOT EXISTS messages_parent ON messages(parent_id)')
 
 
+def migrate_4(db):
+    """Organising chats (pinned, archived, folders) and full-text search over messages."""
+    add_column(db, 'chats', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
+    add_column(db, 'chats', 'archived', 'INTEGER NOT NULL DEFAULT 0')
+    db.executescript('''
+CREATE TABLE IF NOT EXISTS folders (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    collapsed INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);''')
+    add_column(db, 'chats', 'folder_id', 'INTEGER REFERENCES folders(id) ON DELETE SET NULL')
+    try:
+        db.executescript('''
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, content='messages', content_rowid='id');
+CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.id, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF content ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content) VALUES ('delete', old.id, old.content);
+    INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+END;
+INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');''')
+    except sqlite3.OperationalError:
+        pass  # an SQLite without FTS5: search falls back to LIKE
+
+
 # Applied in order; PRAGMA user_version records how many have run. Append, never edit or reorder.
 # Each must be safe to run twice: executescript commits as it goes, so a crash can leave one half done.
-MIGRATIONS = [migrate_1, migrate_2, migrate_3]
-CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options')
+MIGRATIONS = [migrate_1, migrate_2, migrate_3, migrate_4]
+CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options', 'pinned', 'archived', 'folder_id')
 USER_FIELDS = ('username', 'password_hash', 'role', 'disabled')
 
 
@@ -305,11 +336,161 @@ def delete_session(token_hash):
 
 # Chats and messages
 
-def list_chats(user_id):
+def list_chats(user_id, archived=False):
     with connect() as db:
-        rows = db.execute('SELECT id, title, backend, model, updated_at FROM chats WHERE user_id = ? '
-                          'ORDER BY updated_at DESC', (user_id,))
-        return [dict(row) for row in rows]
+        rows = db.execute('SELECT id, title, backend, model, updated_at, pinned, archived, folder_id FROM chats '
+                          'WHERE user_id = ? AND archived = ? ORDER BY updated_at DESC', (user_id, int(archived)))
+        return [{**dict(row), 'pinned': bool(row['pinned']), 'archived': bool(row['archived'])} for row in rows]
+
+
+def count_archived(user_id):
+    with connect() as db:
+        return one(db, 'SELECT COUNT(*) FROM chats WHERE user_id = ? AND archived = 1', user_id)
+
+
+def first_exchange(chat_id):
+    """The first message and the first reply to it, for writing a title."""
+    with connect() as db:
+        rows = db.execute('SELECT role, content FROM messages WHERE chat_id = ? ORDER BY id LIMIT 2', (chat_id,)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def message_count(chat_id):
+    with connect() as db:
+        return one(db, 'SELECT COUNT(*) FROM messages WHERE chat_id = ?', chat_id)
+
+
+# Folders
+
+def list_folders(user_id):
+    with connect() as db:
+        return [{**dict(row), 'collapsed': bool(row['collapsed'])}
+                for row in db.execute('SELECT * FROM folders WHERE user_id = ? ORDER BY name COLLATE NOCASE', (user_id,))]
+
+
+def get_folder(folder_id, user_id):
+    with connect() as db:
+        row = db.execute('SELECT * FROM folders WHERE id = ? AND user_id = ?', (folder_id, user_id)).fetchone()
+    return dict(row) if row else None
+
+
+def create_folder(user_id, name):
+    with connect() as db:
+        return db.execute('INSERT INTO folders (user_id, name, created_at) VALUES (?, ?, ?)',
+                          (user_id, name, time.time())).lastrowid
+
+
+def update_folder(folder_id, user_id, fields):
+    fields = {key: fields[key] for key in ('name', 'collapsed') if key in fields}
+    if fields:
+        with connect() as db:
+            db.execute(f'UPDATE folders SET {", ".join(f"{key} = ?" for key in fields)} WHERE id = ? AND user_id = ?',
+                       (*fields.values(), folder_id, user_id))
+
+
+def delete_folder(folder_id, user_id):
+    """The chats inside stay; they just leave the folder."""
+    with connect() as db:
+        db.execute('UPDATE chats SET folder_id = NULL WHERE folder_id = ? AND user_id = ?', (folder_id, user_id))
+        return db.execute('DELETE FROM folders WHERE id = ? AND user_id = ?', (folder_id, user_id)).rowcount > 0
+
+
+# Search
+
+def fts_query(text):
+    """Every word must appear, as a prefix: "pyth sql" finds "Python ... SQLite"."""
+    words = [w.replace('"', '') for w in text.split()]
+    return ' '.join(f'"{w}"*' for w in words if w)
+
+
+def like_pattern(text):
+    return '%' + text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+
+
+def search(user_id, text, limit=30):
+    """Chats whose title matches, then messages, with a snippet. \x01/\x02 mark the matched words."""
+    text = text.strip()
+    if not text:
+        return []
+    with connect() as db:
+        titles = [dict(row) | {'message_id': None, 'snippet': None} for row in db.execute(
+            "SELECT id AS chat_id, title FROM chats WHERE user_id = ? AND title LIKE ? ESCAPE '\\' "
+            "ORDER BY updated_at DESC LIMIT 10",
+            (user_id, like_pattern(text)))]
+        has_fts = db.execute("SELECT 1 FROM sqlite_master WHERE name = 'messages_fts'").fetchone()
+        if has_fts and fts_query(text):
+            rows = db.execute(
+                "SELECT m.id AS message_id, m.chat_id, c.title, "
+                "snippet(messages_fts, 0, char(1), char(2), '…', 14) AS snippet "
+                "FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid JOIN chats c ON c.id = m.chat_id "
+                "WHERE messages_fts MATCH ? AND c.user_id = ? ORDER BY rank LIMIT ?",
+                (fts_query(text), user_id, limit)).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT m.id AS message_id, m.chat_id, c.title, substr(m.content, 1, 160) AS snippet FROM messages m "
+                "JOIN chats c ON c.id = m.chat_id WHERE c.user_id = ? AND m.content LIKE ? ESCAPE '\\' "
+                "ORDER BY m.id DESC LIMIT ?", (user_id, like_pattern(text), limit)).fetchall()
+    return titles + [dict(row) for row in rows]
+
+
+# Export and import
+
+def export_chat(chat_id, user_id):
+    """Every message of a chat (all branches), with attachment details and their text."""
+    chat = get_chat(chat_id, user_id)
+    if chat is None:
+        return None
+    with connect() as db:
+        messages = [dict(row) for row in db.execute(
+            'SELECT id, parent_id, role, content, thinking, model, stats, created_at FROM messages '
+            'WHERE chat_id = ? ORDER BY id', (chat_id,))]
+        files = {}
+        for row in db.execute('SELECT a.* FROM attachments a JOIN messages m ON m.id = a.message_id '
+                              'WHERE m.chat_id = ? ORDER BY a.created_at', (chat_id,)):
+            files.setdefault(row['message_id'], []).append(
+                {'id': row['id'], 'kind': row['kind'], 'name': row['name'], 'mime': row['mime'], 'size': row['size'],
+                 'path': row['path'], 'text': row['text'], 'truncated': bool(row['truncated'])})
+    for message in messages:
+        message['stats'] = json.loads(message['stats']) if message['stats'] else None
+        message['attachments'] = files.get(message['id'], [])
+    return {'format': 'inphai-chat', 'version': 1, 'title': chat['title'], 'backend': chat['backend'],
+            'model': chat['model'], 'system_prompt': chat['system_prompt'], 'options': chat['options'],
+            'created_at': chat['created_at'], 'updated_at': chat['updated_at'], 'leaf_id': chat['leaf_id'],
+            'shown': [m['id'] for m in chat['messages']], 'messages': messages}
+
+
+def import_chat(user_id, data, saved_files=None):
+    """Recreate an exported chat for user_id (new ids throughout). saved_files maps an old
+    attachment id to its new path under UPLOADS, for files that came along in an archive."""
+    saved_files = saved_files or {}
+    now = time.time()
+    with connect() as db:
+        chat_id = db.execute(
+            'INSERT INTO chats (user_id, title, backend, model, system_prompt, options, created_at, updated_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            (user_id, data['title'], data.get('backend'), data.get('model'), data.get('system_prompt', ''),
+             json.dumps(data.get('options') or {}), data.get('created_at', now), data.get('updated_at', now))).lastrowid
+        ids = {}
+        for message in sorted(data['messages'], key=lambda m: m['id']):
+            new_id = db.execute(
+                'INSERT INTO messages (chat_id, parent_id, role, content, thinking, model, stats, created_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (chat_id, ids.get(message.get('parent_id')), message['role'], message['content'],
+                 message.get('thinking', ''), message.get('model'),
+                 json.dumps(message['stats']) if message.get('stats') else None,
+                 message.get('created_at', now))).lastrowid
+            ids[message['id']] = new_id
+            for file in message.get('attachments', []):
+                path = saved_files.get(file.get('id'))
+                if path is None and file.get('text') is None:
+                    continue  # an image without its file: nothing to keep
+                db.execute('INSERT INTO attachments (id, user_id, message_id, kind, name, mime, size, path, text, '
+                           'truncated, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                           (uuid.uuid4().hex, user_id, new_id, file['kind'], file['name'], file['mime'],
+                            file.get('size', 0), path or '', file.get('text'), int(bool(file.get('truncated'))), now))
+        leaf = ids.get(data.get('leaf_id')) or (max(ids.values()) if ids else None)
+        db.execute('UPDATE chats SET leaf_id = ? WHERE id = ?', (leaf, chat_id))
+    return chat_id
 
 
 def chat_columns(fields):
