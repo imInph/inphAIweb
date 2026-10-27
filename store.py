@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS chats (
     model TEXT,
     system_prompt TEXT NOT NULL DEFAULT '',
     temperature REAL,
-    options TEXT NOT NULL DEFAULT '{}',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -28,23 +27,9 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     thinking TEXT NOT NULL DEFAULT '',
     model TEXT,
-    stats TEXT,
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
-CREATE TABLE IF NOT EXISTS attachments (
-    id TEXT PRIMARY KEY,
-    message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL,
-    name TEXT NOT NULL,
-    mime TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    path TEXT NOT NULL,
-    text TEXT,
-    truncated INTEGER NOT NULL DEFAULT 0,
-    created_at REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_id);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -59,9 +44,43 @@ CREATE TABLE IF NOT EXISTS media (
     created_at REAL NOT NULL
 );
 '''
+
+
+def has_column(db, table, column):
+    return column in {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
+
+
+def add_column(db, table, column, definition):
+    if not has_column(db, table, column):
+        db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+
+
+def migrate_1(db):
+    """Model options per chat (the old temperature moves in), reply stats, attachments."""
+    add_column(db, 'chats', 'options', "TEXT NOT NULL DEFAULT '{}'")
+    add_column(db, 'messages', 'stats', 'TEXT')
+    db.execute("UPDATE chats SET options = json_object('temperature', temperature), temperature = NULL "
+               "WHERE temperature IS NOT NULL AND options = '{}'")
+    db.executescript('''
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    text TEXT,
+    truncated INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_id);''')
+
+
+# Applied in order; PRAGMA user_version records how many have run. Append, never edit or reorder.
+# Each must be safe to run twice: executescript commits as it goes, so a crash can leave one half done.
+MIGRATIONS = [migrate_1]
 CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options')
-# Added after the first version: (table, column, definition).
-COLUMNS = [('chats', 'options', "TEXT NOT NULL DEFAULT '{}'"), ('messages', 'stats', 'TEXT')]
 
 
 @contextmanager
@@ -81,12 +100,10 @@ def init():
     with connect() as db:
         db.execute('PRAGMA journal_mode = WAL')
         db.executescript(SCHEMA)
-        for table, column, definition in COLUMNS:
-            if column not in {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}:
-                db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
-        # The old per-chat temperature now lives in options.
-        db.execute("UPDATE chats SET options = json_object('temperature', temperature), temperature = NULL "
-                   "WHERE temperature IS NOT NULL AND options = '{}'")
+        version = db.execute('PRAGMA user_version').fetchone()[0]
+        for number, migration in enumerate(MIGRATIONS[version:], version + 1):
+            migration(db)
+            db.execute(f'PRAGMA user_version = {number}')
         # Uploads that never made it into a message (the page was closed first).
         stale = db.execute('SELECT path FROM attachments WHERE message_id IS NULL AND created_at < ?',
                            (time.time() - 86400,)).fetchall()
