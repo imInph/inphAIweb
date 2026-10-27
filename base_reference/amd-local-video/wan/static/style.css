@@ -1,0 +1,96 @@
+body {
+    background-color: aliceblue;
+    color: #333333;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+button {
+    background-color: #4CAF50;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.promptInput {
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 25px;
+    width: 40%;
+    font-size: 16px;
+    font-family: inherit;
+    resize: none;
+    overflow: hidden;
+    box-sizing: border-box;
+    min-height: 42px;
+    vertical-align: top;
+}
+
+label {
+    padding: 10px;
+    display: block;
+    margin-bottom: 0px;
+    font-weight: bold;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+}
+
+select {
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    width: 200px;
+    background-color: aliceblue;
+    padding: 10px 20px;
+    height: 40px;
+    margin-left: auto;
+    flex-shrink: 0;
+    }
+
+.mainbox {
+    flex-direction: row;
+    width: fit-content;
+    margin: 0 auto;
+    gap: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 20px auto 0;
+}
+
+.leftbox {
+    flex-direction: column;
+    width: fit-content;
+    margin: 0 auto;
+    gap: 20px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: right;
+}
+
+.rightbox {
+    flex-direction: column;
+    width: fit-content;
+    margin: 0 auto;
+    gap: 20px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: left;
+}
+
+.innerbox {
+    flex-direction: row;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+    width: 340px;
+    height: fit-content;
+    margin: 0;
+    gap: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}

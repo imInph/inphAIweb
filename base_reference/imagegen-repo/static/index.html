@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Image Generation</title>
+        <link rel="stylesheet" href="/static/style.css">
+        <script src="/static/script.js" defer></script>
+    </head>
+    <body>
+        <h1>Image Generation</h1>
+        <hr>
+        <p>You can generate images by entering a prompt below.</p>
+        <p id="status" role="status" aria-live="polite">Ready</p>
+        <textarea class="promptInput" id="prompt" aria-label="Prompt" placeholder="Enter your prompt..." rows="1" maxlength="4000"></textarea><br><br>
+        <button id="generateButton" type="button">Generate</button>
+        <div class="mainbox">
+            <div class="leftbox">
+                <div class="innerbox">
+                    <label for="resolution">Resolution:</label>
+                    <select id="resolution">
+                        <option value="512x512">512 × 512 — Quick test</option>
+                        <option value="768x768">768 × 768</option>
+                        <option value="1024x1024" selected>1024 × 1024 — Default</option>
+                        <option value="832x1216">832 × 1216 — Portrait</option>
+                        <option value="1216x832">1216 × 832 — Landscape</option>
+                    </select>
+                </div>
+                <div class="innerbox">
+                    <label for="seed">Seed:</label>
+                    <select id="seed">
+                        <option value="42" selected>42 — Default</option>
+                        <option value="123">123</option>
+                        <option value="456">456</option>
+                        <option value="789">789</option>
+                        <option value="1234">1234</option>
+                    </select>
+                </div>
+            </div>
+            <div class="rightbox">
+                <div class="innerbox">
+                    <label for="steps">Steps:</label>
+                    <select id="steps"></select>
+                </div>
+                <div class="innerbox">
+                    <label for="model">Model:</label>
+                    <select id="model">
+                        <option value="anime" selected>Anime — WAI</option>
+                        <option value="realistic">Realistic — Z-Image</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <img id="resultImage" alt="Your generated image" hidden>
+    </body>
+</html>

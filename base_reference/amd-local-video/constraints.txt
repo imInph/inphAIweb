@@ -1,0 +1,2 @@
+# Keep dependency installation from replacing the working AMD build.
+torch==2.10.0+rocm7.1
