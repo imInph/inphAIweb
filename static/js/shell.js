@@ -1,5 +1,6 @@
 import { $, api, autoGrow, storageSet } from "./util.js";
 import { state } from "./state.js";
+import { setCodeTheme } from "./render.js";
 import { openChat } from "./chat.js";
 import { loadGallery } from "./media.js";
 import { loadSettingsPage } from "./settings.js";
@@ -53,6 +54,7 @@ export function tick() {
 
 export function setTheme(theme, save = true) {
     document.documentElement.setAttribute("data-theme", theme);
+    setCodeTheme(theme === "dark");
     document.querySelector('meta[name="theme-color"]').setAttribute("content", theme === "dark" ? "#0b0d12" : "#f4f6fa");
     // This browser keeps a copy so the next page load paints the right theme at once.
     storageSet("inphai.theme", theme);

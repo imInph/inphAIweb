@@ -5,6 +5,7 @@ import { loadChats, renderChatList } from "./chats.js";
 import { paintChatOptions } from "./options.js";
 import { fileChip, renderPending } from "./attachments.js";
 import { showSaved } from "./settings.js";
+import { enhance, togglePreview } from "./render.js";
 
 // One chat
 
@@ -91,7 +92,13 @@ function filesElement(files) {
     return list;
 }
 
+// Finished replies are rendered (and highlighted, and their diagrams drawn) once, then reused:
+// while another reply streams, the whole list is repainted every frame.
+const rendered = new Map();
+
 function replyBody(message, streaming) {
+    const key = !streaming && message.id > 0 ? `${message.id}\n${message.content}\n${message.thinking}` : null;
+    if (key && rendered.has(key)) return rendered.get(key);
     const parts = [];
     const { thinking, content } = splitThinking(message);
     if (thinking) {
@@ -103,7 +110,12 @@ function replyBody(message, streaming) {
     const reply = Object.assign(document.createElement("div"), { className: "reply" });
     reply.innerHTML = renderMarkdown(content);
     if (streaming) reply.classList.add("cursor");
+    else enhance(reply);
     parts.push(reply);
+    if (key) {
+        if (rendered.size > 500) rendered.clear();
+        rendered.set(key, parts);
+    }
     return parts;
 }
 
@@ -229,6 +241,8 @@ export function renderMessages() {
 $("messages").addEventListener("click", event => {
     const copy = event.target.closest(".copy-code");
     if (copy) copyText(copy.closest(".code-block").querySelector("code").textContent, copy);
+    const preview = event.target.closest(".preview-code");
+    if (preview) togglePreview(preview.closest(".code-block"), preview);
 });
 
 // Sending

@@ -1,5 +1,7 @@
 // A small Markdown renderer for chat replies. Every piece of text is escaped
-// before it becomes HTML, so nothing a model writes can inject markup.
+// before it becomes HTML, so nothing a model writes can inject markup. Maths is
+// rendered by KaTeX (which builds its own HTML from the TeX, never passing it through);
+// code highlighting, diagrams and HTML previews are added afterwards by js/render.js.
 
 function escapeHtml(text) {
     return text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -33,8 +35,50 @@ function tableCells(line) {
     return line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
 }
 
+const MATH = "\u0003";
+const INLINE_DOLLAR = /\$(?=[^\s$])((?:\\.|[^$\\\n])+?)(?<=[^\s\\])\$(?!\d)/g;
+
+/** Take $…$, $$…$$, \(…\) and \[…\] out of the text (not inside code), leaving placeholders. */
+function extractMath(source, found) {
+    const keep = (tex, display) => `${MATH}${found.push({ tex, display }) - 1}${MATH}`;
+    const mathIn = text => {
+        const code = [];
+        text = text.replace(/(`+)[\s\S]+?\1/g, span => `\u0004${code.push(span) - 1}\u0004`);
+        text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => keep(tex, true))
+            .replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => keep(tex, true))
+            .replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => keep(tex, false))
+            .replace(INLINE_DOLLAR, (_, tex) => keep(tex, false));
+        return text.replace(/\u0004(\d+)\u0004/g, (_, i) => code[i]);
+    };
+    const out = [];
+    let text = [], fence = null;
+    for (const line of source.split("\n")) {
+        const mark = line.match(/^\s*(```|~~~)/);
+        if (fence ? line.trim().startsWith(fence) : mark) {
+            if (!fence) out.push(mathIn(text.join("\n")), line), text = [], fence = mark[1];
+            else out.push(line), fence = null;
+            continue;
+        }
+        if (fence) out.push(line);
+        else text.push(line);
+    }
+    if (text.length) out.push(mathIn(text.join("\n")));
+    return out.join("\n");
+}
+
+function renderMath({ tex, display }) {
+    if (!window.katex) return escapeHtml(display ? `$$${tex}$$` : `$${tex}$`);
+    return window.katex.renderToString(tex, { displayMode: display, throwOnError: false, output: "html" });
+}
+
 function renderMarkdown(source) {
-    const lines = source.replace(/\r\n?/g, "\n").split("\n");
+    const math = [];
+    const html = renderBlocks(extractMath(source.replace(/\r\n?/g, "\n").replace(/[\u0003\u0004]/g, ""), math));
+    return html.replace(new RegExp(`${MATH}(\\d+)${MATH}`, "g"), (_, i) => renderMath(math[i]));
+}
+
+function renderBlocks(source) {
+    const lines = source.split("\n");
     const out = [];
     let i = 0;
     while (i < lines.length) {
@@ -51,9 +95,12 @@ function renderMarkdown(source) {
             // While a reply streams, the closing fence may not have arrived yet.
             while (i < lines.length && !lines[i].trim().startsWith(fence[1])) code.push(lines[i++]);
             i++;
-            out.push(`<div class="code-block"><div class="code-head"><span>${escapeHtml(fence[2] || "code")}</span>`
-                + `<button type="button" class="btn btn-ghost btn-sm copy-code">Copy</button></div>`
-                + `<pre><code>${escapeHtml(code.join("\n"))}</code></pre></div>`);
+            const lang = fence[2].toLowerCase().replace(/[^\w+#.-]/g, "");
+            const preview = ["html", "svg", "xml"].includes(lang)
+                ? `<button type="button" class="btn btn-ghost btn-sm preview-code">Preview</button>` : "";
+            out.push(`<div class="code-block" data-lang="${lang}"><div class="code-head"><span>${escapeHtml(lang || "code")}</span>`
+                + `<span class="code-actions">${preview}<button type="button" class="btn btn-ghost btn-sm copy-code">Copy</button></span></div>`
+                + `<pre><code${lang ? ` class="language-${lang}"` : ""}>${escapeHtml(code.join("\n"))}</code></pre></div>`);
             continue;
         }
 
@@ -74,7 +121,7 @@ function renderMarkdown(source) {
         if (/^\s*>/.test(line)) {
             const quote = [];
             while (i < lines.length && /^\s*>/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ""));
-            out.push(`<blockquote>${renderMarkdown(quote.join("\n"))}</blockquote>`);
+            out.push(`<blockquote>${renderBlocks(quote.join("\n"))}</blockquote>`);
             continue;
         }
 
@@ -101,7 +148,7 @@ function renderMarkdown(source) {
                 }
             }
             const tag = ordered ? "ol" : "ul";
-            const body = items.map(parts => `<li>${parts.length === 1 ? renderInline(parts[0]) : renderMarkdown(parts.join("\n"))}</li>`);
+            const body = items.map(parts => `<li>${parts.length === 1 ? renderInline(parts[0]) : renderBlocks(parts.join("\n"))}</li>`);
             out.push(`<${tag}${ordered && start !== 1 ? ` start="${start}"` : ""}>${body.join("")}</${tag}>`);
             continue;
         }

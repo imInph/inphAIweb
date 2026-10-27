@@ -18,6 +18,15 @@
             })();
         </script>
         <link rel="stylesheet" href="/static/style.css">
+        <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+        <link rel="stylesheet" href="/static/vendor/highlight/github.css" id="codeTheme">
+        <script>
+            // The code colours follow the theme from the first paint.
+            if (document.documentElement.getAttribute("data-theme") === "dark")
+                document.getElementById("codeTheme").href = "/static/vendor/highlight/github-dark.css";
+        </script>
+        <script src="/static/vendor/katex/katex.min.js" defer></script>
+        <script src="/static/vendor/highlight/highlight.min.js" defer></script>
         <script src="/static/markdown.js" defer></script>
         <script type="module" src="/static/js/main.js"></script>
     </head>
