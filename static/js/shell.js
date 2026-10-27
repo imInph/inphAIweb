@@ -1,11 +1,12 @@
 import { $, api, autoGrow, storageSet } from "./util.js";
 import { state } from "./state.js";
 import { setCodeTheme } from "./render.js";
+import { loadCatalog } from "./catalog.js";
 import { openChat } from "./chat.js";
 import { loadGallery } from "./media.js";
 import { loadSettingsPage } from "./settings.js";
 
-export const TITLES = { chat: "Chat", images: "Images", videos: "Videos", settings: "Settings" };
+export const TITLES = { chat: "Chat", images: "Images", videos: "Videos", models: "Models", settings: "Settings" };
 export const VIEWS = Object.keys(TITLES);
 
 // Views
@@ -25,6 +26,8 @@ export function showView() {
         if (chatId !== (state.chat && state.chat.id)) openChat(chatId);
     } else if (state.view === "settings") {
         loadSettingsPage();
+    } else if (state.view === "models") {
+        loadCatalog();
     } else {
         loadGallery(state.view === "images" ? "image" : "video");
     }

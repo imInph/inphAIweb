@@ -3,6 +3,7 @@ import { state } from "./state.js";
 import { fillCompareSelects, renderMessages } from "./chat.js";
 import { paintChatOptions } from "./options.js";
 import { showSaved } from "./settings.js";
+import { renderPending } from "./attachments.js";
 
 // The model picker: your personas first, then every model LM Studio and Ollama have.
 
@@ -45,7 +46,9 @@ export function renderModelSelect() {
     const byBackend = {};
     for (const model of state.models) {
         byBackend[model.backend_name] ??= Object.assign(document.createElement("optgroup"), { label: model.backend_name });
-        byBackend[model.backend_name].append(new Option(model.id, modelKey(model.backend, model.id)));
+        const notes = (model.capabilities || []).filter(c => c === "vision" || c === "thinking")
+            .map(c => (c === "vision" ? "sees images" : "thinks"));
+        byBackend[model.backend_name].append(new Option(model.id + (notes.length ? ` · ${notes.join(", ")}` : ""), modelKey(model.backend, model.id)));
     }
     groups.push(...Object.values(byBackend));
     select.replaceChildren(...groups);
@@ -95,4 +98,5 @@ $("model").addEventListener("change", async () => {
         }
     }
     paintChatOptions();
+    renderPending();
 });

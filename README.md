@@ -62,6 +62,16 @@ and you can cancel your own (admins can cancel anyone's).
 - Replies render Markdown, maths (KaTeX), highlighted code, Mermaid diagrams, and a sandboxed
   preview for HTML/SVG code. Tokens per second are shown under each reply. `?` lists shortcuts.
 
+## Models page
+
+Shows what Ollama has installed (size, quantisation, and whether a model sees images, thinks or
+uses tools) and what's loaded in GPU memory right now, with Unload. Admins can pull new models
+(it keeps downloading if you leave the page) and delete them. LM Studio's downloaded models are
+listed with whether they're loaded; LM Studio loads them itself when a chat uses one.
+
+The model picker shows the same "sees images" / "thinks" notes, Thinking is greyed out for models
+that can't think, and attaching an image to a model that can't see warns you.
+
 ## LLM servers
 
 Both are used on their default ports: LM Studio through its OpenAI-style `/v1` API, Ollama

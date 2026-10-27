@@ -1,3 +1,5 @@
+import { modelCapabilities } from "./options.js";
+import { selectedModel } from "./models.js";
 import { $, api, icon, iconButton, request } from "./util.js";
 import { state } from "./state.js";
 
@@ -34,6 +36,11 @@ export function renderPending() {
     const box = $("pendingFiles");
     box.hidden = !state.pending.length;
     box.replaceChildren(...state.pending.map(file => fileChip(file, () => removePending(file))));
+    const capabilities = modelCapabilities(selectedModel());
+    if (state.pending.some(file => file.kind === "image") && capabilities && !capabilities.includes("vision")) {
+        box.append(Object.assign(document.createElement("p"), { className: "vision-warning",
+            textContent: "This model can't see images. Pick one marked \"sees images\" in the model list." }));
+    }
 }
 
 export function removePending(file) {

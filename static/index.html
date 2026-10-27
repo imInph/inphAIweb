@@ -47,6 +47,10 @@
                         <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10.5l5-3v9l-5-3z"/></svg>
                         Videos
                     </a>
+                    <a class="nav-item" href="#models" data-view="models">
+                        <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.8l8 4.6v9.2l-8 4.6-8-4.6V7.4z"/><path d="M4 7.4l8 4.6 8-4.6M12 12v9.2"/></svg>
+                        Models
+                    </a>
                     <a class="nav-item" href="#settings" data-view="settings">
                         <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h9M17.5 6.5H20M4 12h3M11.5 12H20M4 17.5h11M19.5 17.5h.5"/><circle cx="15.5" cy="6.5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17.5" cy="17.5" r="2"/></svg>
                         Settings
@@ -253,6 +257,39 @@
                         <div class="job-box" id="videoJob" hidden></div>
                     </div>
                     <div class="gallery" id="videoGallery"></div>
+                </section>
+
+                <!-- Models -->
+                <section class="view models-view" id="view-models" aria-label="Models" hidden>
+                    <div class="settings-grid">
+                        <div class="card">
+                            <div class="card-head"><h3>Ollama</h3><small class="saved" data-saved="ollama"></small></div>
+                            <p class="error-block" id="ollamaError" hidden></p>
+                            <div id="ollamaLoadedBox">
+                                <div class="options-head"><span>Loaded now</span></div>
+                                <ul class="item-list" id="ollamaLoaded"></ul>
+                            </div>
+                            <div>
+                                <div class="options-head"><span>Installed</span></div>
+                                <ul class="item-list" id="ollamaInstalled"></ul>
+                            </div>
+                            <form class="pull-form admin-only" id="pullForm" hidden>
+                                <label><span>Download a model <a href="https://ollama.com/library" target="_blank" rel="noopener">(browse the library)</a></span>
+                                    <input id="pullName" placeholder="qwen3:8b" autocapitalize="none" spellcheck="false">
+                                </label>
+                                <button class="btn btn-primary" type="submit">Pull</button>
+                            </form>
+                            <ul class="item-list" id="ollamaPulls"></ul>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>LM Studio</h3></div>
+                            <p class="error-block" id="lmstudioError" hidden></p>
+                            <ul class="item-list" id="lmstudioModels"></ul>
+                            <p class="card-note" id="lmstudioNote">LM Studio loads a model when a chat first uses it (just-in-time loading in its Developer settings).
+                                To load or unload one by hand, use its app or <code>lms load &lt;model&gt;</code> and <code>lms unload --all</code>.</p>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Settings -->

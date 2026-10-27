@@ -18,7 +18,7 @@ export const OPTION_FIELDS = [
     { name: "think", label: "Thinking", kind: "bool", ollama: true },
 ];
 
-export function renderOptions(container, values, onChange, backend) {
+export function renderOptions(container, values, onChange, backend, capabilities = null) {
     container.replaceChildren(...OPTION_FIELDS.map(field => {
         const label = document.createElement("label");
         const caption = document.createElement("span");
@@ -39,8 +39,11 @@ export function renderOptions(container, values, onChange, backend) {
         }
         input.dataset.option = field.name;
         input.addEventListener("change", () => onChange(readOptions(container)));
-        label.classList.toggle("unused", Boolean(field.ollama && backend === "lmstudio"));
-        label.title = field.ollama && backend === "lmstudio" ? "Only Ollama uses this one" : "";
+        // Capabilities are null when the server doesn't say; then nothing is greyed out for them.
+        const noThinking = field.name === "think" && capabilities && !capabilities.includes("thinking");
+        label.classList.toggle("unused", Boolean((field.ollama && backend === "lmstudio") || noThinking));
+        label.title = field.ollama && backend === "lmstudio" ? "Only Ollama uses this one"
+            : noThinking ? "This model doesn't think, so this does nothing (and On makes Ollama refuse)" : "";
         label.append(caption, input);
         return label;
     }));
@@ -59,11 +62,18 @@ export function readOptions(container) {
     return options;
 }
 
+/** What the picked model can do, or null when its server doesn't say. */
+export function modelCapabilities(picked) {
+    if (!picked) return null;
+    const model = state.models.find(m => m.backend === picked.backend && m.id === picked.model);
+    return model ? model.capabilities : null;
+}
+
 export function paintChatOptions() {
     const settings = state.chat || state.draft;
     const picked = selectedModel();
     const backend = picked ? picked.backend : null;
-    renderOptions($("chatOptions"), settings.options || {}, saveChatOptions, backend);
+    renderOptions($("chatOptions"), settings.options || {}, saveChatOptions, backend, modelCapabilities(picked));
     $("chatOptionsNote").textContent = backend === "lmstudio"
         ? "Greyed-out ones are Ollama only."
         : "Empty means the model's own default.";

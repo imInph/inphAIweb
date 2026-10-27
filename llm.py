@@ -1,5 +1,7 @@
 """LM Studio and Ollama, both through their OpenAI-style /v1 API."""
+from concurrent.futures import ThreadPoolExecutor
 import json
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -12,9 +14,9 @@ def url(backend):
     return settings.get(f'{backend}_url')
 
 
-def request(backend, path, body=None, timeout=5, base=None):
+def request(backend, path, body=None, timeout=5, base=None, method=None):
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request((base or url(backend)) + path, data=data,
+    req = urllib.request.Request((base or url(backend)) + path, data=data, method=method,
                                  headers={'Content-Type': 'application/json'})
     return urllib.request.urlopen(req, timeout=timeout)
 
@@ -34,19 +36,147 @@ def describe(backend, error, base=None):
     return f'{name}: {error}'
 
 
+def get_json(backend, path, timeout=5):
+    with request(backend, path, timeout=timeout) as response:
+        return json.load(response)
+
+
+# What a model can do ('vision', 'thinking', 'tools', 'embedding', ...). Ollama says so in /api/show;
+# it doesn't change until the model is pulled again, so it's cached by name and modification time.
+capability_cache = {}
+cache_lock = threading.Lock()
+
+
+def ollama_show(name):
+    with request('ollama', '/api/show', {'model': name}, timeout=10) as response:
+        return json.load(response)
+
+
+def ollama_capabilities(name, modified):
+    with cache_lock:
+        if (name, modified) in capability_cache:
+            return capability_cache[(name, modified)]
+    try:
+        capabilities = ollama_show(name).get('capabilities')
+    except Exception:
+        capabilities = None
+    with cache_lock:
+        capability_cache[(name, modified)] = capabilities
+    return capabilities
+
+
+def lmstudio_listing():
+    """LM Studio's own REST API (/api/v0) says each model's type and whether it's loaded; older
+    versions only have /v1/models. Returns (models, detailed)."""
+    try:
+        return get_json('lmstudio', '/api/v0/models').get('data', []), True
+    except urllib.error.HTTPError:
+        return get_json('lmstudio', '/v1/models').get('data', []), False
+
+
 def list_models():
+    """Every chat model of both servers, with what each can do when the server says."""
     found, errors = [], {}
-    for key, backend in BACKENDS.items():
-        try:
-            with request(key, '/v1/models') as response:
-                listing = json.load(response)
-            # Embedding models can't chat, and both servers list them here.
-            ids = sorted(item['id'] for item in listing.get('data', [])
-                         if 'id' in item and 'embed' not in item['id'].lower())
-            found.extend({'backend': key, 'backend_name': backend['name'], 'id': i} for i in ids)
-        except Exception as error:
-            errors[key] = describe(key, error)
+    try:
+        tags = get_json('ollama', '/api/tags').get('models', [])
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            capabilities = list(pool.map(lambda m: ollama_capabilities(m['name'], m.get('modified_at')), tags))
+        for model, caps in sorted(zip(tags, capabilities), key=lambda pair: pair[0]['name']):
+            is_embedding = 'embedding' in (caps or []) or 'embed' in model['name'].lower()
+            if not is_embedding:
+                found.append({'backend': 'ollama', 'backend_name': 'Ollama', 'id': model['name'], 'capabilities': caps})
+    except Exception as error:
+        errors['ollama'] = describe('ollama', error)
+    try:
+        listing, detailed = lmstudio_listing()
+        for model in sorted(listing, key=lambda m: m.get('id', '')):
+            kind = model.get('type')
+            if 'id' not in model or kind == 'embeddings' or 'embed' in model['id'].lower():
+                continue
+            # /api/v0 marks vision models as "vlm"; without it nothing is known.
+            caps = (['vision'] if kind == 'vlm' else []) if detailed else None
+            found.append({'backend': 'lmstudio', 'backend_name': 'LM Studio', 'id': model['id'], 'capabilities': caps})
+    except Exception as error:
+        errors['lmstudio'] = describe('lmstudio', error)
     return found, errors
+
+
+# Ollama management (the Models page)
+
+def ollama_overview():
+    tags = get_json('ollama', '/api/tags').get('models', [])
+    loaded = get_json('ollama', '/api/ps').get('models', [])
+    installed = []
+    for model in sorted(tags, key=lambda m: m['name']):
+        details = model.get('details') or {}
+        installed.append({'name': model['name'], 'size': model.get('size'), 'modified_at': model.get('modified_at'),
+                          'family': details.get('family'), 'parameters': details.get('parameter_size'),
+                          'quantization': details.get('quantization_level'),
+                          'capabilities': ollama_capabilities(model['name'], model.get('modified_at'))})
+    running = [{'name': m.get('name'), 'size': m.get('size'), 'vram': m.get('size_vram'), 'expires_at': m.get('expires_at'),
+                'context': m.get('context_length')} for m in loaded]
+    return {'installed': installed, 'loaded': running}
+
+
+def ollama_details(name):
+    shown = ollama_show(name)
+    return {'capabilities': shown.get('capabilities'), 'details': shown.get('details'),
+            'parameters': shown.get('parameters'), 'template': shown.get('template'),
+            'license': (shown.get('license') or '')[:2000] or None}
+
+
+def ollama_delete(name):
+    request('ollama', '/api/delete', {'model': name}, timeout=30, method='DELETE').close()
+
+
+def ollama_unload(name):
+    request('ollama', '/api/generate', {'model': name, 'keep_alive': 0}, timeout=30).close()
+
+
+# Pulls run on the server in their own thread, so leaving the page doesn't stop them.
+pulls = {}
+pulls_lock = threading.Lock()
+
+
+def start_pull(name):
+    with pulls_lock:
+        if name in pulls and not pulls[name]['done']:
+            return pulls[name]
+        pulls[name] = {'name': name, 'status': 'starting', 'completed': 0, 'total': 0, 'error': None, 'done': False}
+    threading.Thread(target=run_pull, args=(name,), daemon=True).start()
+    return pulls[name]
+
+
+def run_pull(name):
+    progress = pulls[name]
+    try:
+        with request('ollama', '/api/pull', {'model': name, 'stream': True}, timeout=3600) as response:
+            for raw in response:
+                line = raw.decode('utf-8', 'replace').strip()
+                if not line:
+                    continue
+                event = json.loads(line)
+                if event.get('error'):
+                    raise RuntimeError(event['error'])
+                progress['status'] = event.get('status', progress['status'])
+                if event.get('total'):
+                    progress['total'], progress['completed'] = event['total'], event.get('completed', 0)
+        progress['status'] = 'done'
+        with cache_lock:
+            capability_cache.clear()
+    except Exception as error:
+        progress['error'] = describe('ollama', error)
+    finally:
+        progress['done'] = True
+        progress['finished_at'] = time.time()
+
+
+def pull_status():
+    with pulls_lock:
+        # Finished pulls are shown for ten minutes.
+        for name in [n for n, p in pulls.items() if p['done'] and time.time() - p['finished_at'] > 600]:
+            del pulls[name]
+        return list(pulls.values())
 
 
 def test(backend, base):

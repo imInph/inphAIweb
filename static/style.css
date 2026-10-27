@@ -619,6 +619,31 @@ body.login-page { overflow: auto; display: grid; place-items: center; min-height
 }
 .job-note { color: var(--text-dim); font-weight: 500 !important; margin-bottom: 8px !important; }
 
+/* Models page */
+.models-view, .settings-view { overflow-y: auto; padding-bottom: 32px; }
+.models-view .settings-grid .card { display: flex; flex-direction: column; gap: 14px; }
+.model-row { flex-wrap: wrap; }
+.model-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.model-title strong { font-family: var(--font-mono); font-weight: 600; font-size: .84rem; }
+.badges { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 7px; font-size: .68rem; font-weight: 650; background: var(--fill-2); color: var(--text-dim); }
+.badge-vision { background: color-mix(in srgb, #0a84ff 16%, transparent); color: #0a6fd8; }
+.badge-thinking { background: color-mix(in srgb, #bf5af2 16%, transparent); color: #9a3fd0; }
+.badge-tools { background: color-mix(in srgb, #ff9f0a 18%, transparent); color: #b86e00; }
+.badge-loaded { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+[data-theme="dark"] .badge-vision { color: #64b0ff; }
+[data-theme="dark"] .badge-thinking { color: #d39af5; }
+[data-theme="dark"] .badge-tools { color: #ffbf5a; }
+.model-details { flex-basis: 100%; font-size: .8rem; color: var(--text-dim); }
+.model-details h4 { font-size: .74rem; margin: 8px 0 4px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; }
+.model-details pre { margin: 0; padding: 8px 10px; border-radius: var(--radius-xs); background: var(--fill-2); white-space: pre-wrap; font-size: .76rem; max-height: 200px; overflow: auto; }
+.pull-form { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--border); padding-top: 14px; }
+.pull-form label { flex: 1; }
+.pull-form .btn { height: 42px; }
+.model-row .bar { margin: 6px 0 0; }
+.error-text { color: var(--bad) !important; white-space: normal !important; }
+.vision-warning { flex-basis: 100%; margin: 0; font-size: .78rem; color: var(--warn); }
+
 /* Prompts, personas, memories, shortcuts */
 .item-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .item-row { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: var(--radius-sm); background: var(--fill-1); }
