@@ -1,5 +1,6 @@
-"""Site settings and the connection test."""
+"""Server-wide settings (admin only) and the connection test."""
 from flask import Blueprint, jsonify, request
+import auth
 import jobs
 import llm
 import settings
@@ -13,8 +14,10 @@ def folder_size(path):
 
 
 @bp.get('/api/settings')
+@auth.admin_only
 def get_settings():
-    return jsonify(settings=settings.get(), defaults=settings.DEFAULTS, counts=store.counts(),
+    # The whole server's disk use; each user's own numbers come from /api/me/data.
+    return jsonify(settings=settings.get(), defaults=settings.DEFAULTS, users=store.count_users(),
                    disk={'database': folder_size(store.DATA) - folder_size(jobs.OUTPUTS) - folder_size(store.UPLOADS),
                          'files': folder_size(store.UPLOADS),
                          'images': folder_size(jobs.OUTPUTS / 'images'),
@@ -22,6 +25,7 @@ def get_settings():
 
 
 @bp.patch('/api/settings')
+@auth.admin_only
 def save_settings():
     try:
         store.save_settings(settings.validate(request.get_json(silent=True)))
@@ -31,6 +35,7 @@ def save_settings():
 
 
 @bp.post('/api/settings/test')
+@auth.admin_only
 def test_connection():
     data = request.get_json(silent=True) or {}
     if data.get('backend') not in llm.BACKENDS:

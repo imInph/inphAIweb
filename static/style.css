@@ -483,6 +483,61 @@ input[type="checkbox"]:focus-visible { box-shadow: var(--focus-ring); }
 .btn-danger { align-self: flex-start; }
 
 /* ==========================================================================
+   Accounts
+   ========================================================================== */
+.error-block {
+    color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent);
+    border-radius: var(--radius-sm); padding: 9px 12px; font-size: .88rem;
+}
+body.login-page { overflow: auto; display: grid; place-items: center; min-height: 100vh; min-height: 100dvh; padding: 16px; }
+.login-card { width: min(380px, 100%); display: flex; flex-direction: column; gap: 6px; padding: 26px 24px; }
+.login-card .brand { padding: 0 0 8px; }
+.login-card h1 { font-size: 1.45rem; margin: 0; }
+.login-card form { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+.login-card .btn-primary { padding: 11px; margin-top: 4px; }
+
+.account-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-top: 8px;
+    border-radius: 14px; color: var(--text); font-size: .9rem; font-weight: 560;
+}
+@media (hover: hover) { .account-row:hover { background: var(--fill-1); } }
+.avatar {
+    width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); font-size: .8rem; font-weight: 700;
+}
+.account-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.password-form, .add-user { display: grid; gap: 10px; }
+.add-user { grid-template-columns: 1fr 1fr auto; align-items: end; border-top: 1px solid var(--border); padding-top: 14px; }
+.add-user label:nth-child(3) { min-width: 110px; }
+.add-user .btn { height: 42px; grid-column: 1 / -1; justify-self: start; }
+.row-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.card-head .tag { flex: none; }
+
+.users-card { grid-column: 1 / -1; }
+.user-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.user-row {
+    display: grid; grid-template-columns: 1fr 130px auto; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: var(--radius-sm); background: var(--fill-1);
+}
+.user-row.disabled .user-name { opacity: .55; }
+.user-name { min-width: 0; display: flex; flex-direction: column; }
+.user-name strong { font-weight: 600; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; }
+.user-name small { color: var(--text-faint); font-size: .76rem; }
+.user-row select { padding: 6px 30px 6px 10px; }
+.user-actions { display: flex; gap: 2px; }
+
+.job-row { padding: 10px 0; border-top: 1px solid var(--border); }
+.job-row:first-child { border-top: none; padding-top: 0; }
+.job-row .row { align-items: flex-start; }
+.job-text { flex: 1; min-width: 0; }
+.job-text small {
+    display: block; color: var(--text-faint); font-size: .76rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.job-note { color: var(--text-dim); font-weight: 500 !important; margin-bottom: 8px !important; }
+
+/* ==========================================================================
    Phones
    ========================================================================== */
 @media (max-width: 768px) {
@@ -514,6 +569,10 @@ input[type="checkbox"]:focus-visible { box-shadow: var(--focus-ring); }
     .message.user .bubble { max-width: 92%; }
     .chat-list li .btn { visibility: visible; }
     .field-row > label { flex: 1 1 calc(50% - 6px); }
+    .add-user { grid-template-columns: 1fr; }
+    .user-row { grid-template-columns: 1fr auto; }
+    .user-row select { grid-column: 1; }
+    .user-actions { grid-column: 2; grid-row: 1 / span 2; flex-direction: column; }
     .btn, .nav-item { min-height: 44px; }
     .btn-sm { min-height: 36px; }
     .btn-icon { min-width: 44px; min-height: 44px; }

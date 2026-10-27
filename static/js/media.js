@@ -35,11 +35,11 @@ export function updateImageNegative() {
 }
 
 export function fillNegatives(force = false) {
-    if (!state.settings) return;
+    if (!state.me) return;
     for (const kind of ["image", "video"]) {
         const box = $(`${kind}Negative`);
         if (force || !box.dataset.touched) {
-            box.value = state.settings[`${kind}_negative_prompt`];
+            box.value = state.me.server[`${kind}_negative_prompt`];
             autoGrow(box);
         }
     }
@@ -79,12 +79,14 @@ export async function generate(kind) {
         $(`${kind}Prompt`).focus();
         return;
     }
+    state.startErrors[kind] = null;
     try {
-        state.job = await api(kind === "image" ? "/api/images" : "/api/videos", { method: "POST", body: settings });
+        const job = await api(kind === "image" ? "/api/images" : "/api/videos", { method: "POST", body: settings });
+        state.jobs.push(job);
         renderJob();
         pollJob();
     } catch (error) {
-        state.job = { state: "error", kind, error: error.message, output: [] };
+        state.startErrors[kind] = error.message;
         renderJob();
     }
 }
@@ -99,52 +101,70 @@ export function jobMessage(job) {
         }
         return STAGES[job.stage] || "Generating...";
     }
-    if (job.state === "done") return `Done in ${Math.round(job.media.seconds)} s.`;
+    if (job.state === "queued") {
+        return job.ahead ? `Waiting · ${job.ahead} job${job.ahead === 1 ? "" : "s"} ahead of it` : "Starting...";
+    }
+    if (job.state === "done") return `Done in ${Math.round(job.media ? job.media.seconds : 0)} s.`;
     if (job.state === "cancelled") return "Cancelled.";
     if (job.state === "error") return `Error: ${job.error}`;
     return "";
 }
 
+const active = job => job.state === "queued" || job.state === "running";
+
+function cancelJob(job) {
+    api(`/api/jobs/${job.id}/cancel`, { method: "POST" }).catch(error => alert(error.message)).then(pollJob);
+}
+
+function jobRow(job) {
+    const row = Object.assign(document.createElement("div"), { className: `job-row ${job.state}` });
+    const head = Object.assign(document.createElement("div"), { className: "row" });
+    const text = Object.assign(document.createElement("div"), { className: "job-text" });
+    text.append(Object.assign(document.createElement("p"), { textContent: jobMessage(job), className: job.state === "error" ? "error" : "" }),
+        Object.assign(document.createElement("small"), { textContent: job.settings.prompt }));
+    head.append(text);
+    if (active(job)) head.append(button("Cancel", () => cancelJob(job), "btn btn-sm"));
+    row.append(head);
+    if (job.state === "running") row.append(progressBar(job));
+    if (job.output && job.output.length) {
+        const details = document.createElement("details");
+        details.append(Object.assign(document.createElement("summary"), { textContent: "Output" }),
+            Object.assign(document.createElement("pre"), { textContent: job.output.join("\n") }));
+        row.append(details);
+    }
+    return row;
+}
+
 export function renderJob() {
-    const job = state.job;
-    const running = job && job.state === "running";
+    const mine = state.jobs;
+    const running = mine.find(job => job.state === "running");
     for (const kind of ["image", "video"]) {
         const box = $(`${kind}Job`);
-        const generateButton = $(`${kind}Generate`);
-        generateButton.disabled = running;
-        generateButton.textContent = running && job.kind === kind ? "Generating..." : "Generate";
-        if (!job || job.kind !== kind || job.state === "idle") {
-            box.hidden = !running;
-            if (running) box.replaceChildren(Object.assign(document.createElement("p"), {
-                textContent: `Waiting for the ${job.kind} that is generating to finish.` }));
-            continue;
+        const jobs = mine.filter(job => job.kind === kind);
+        const busy = mine.some(active) || state.busy;
+        $(`${kind}Generate`).textContent = busy ? "Add to queue" : "Generate";
+        const parts = [];
+        if (state.startErrors[kind]) parts.push(Object.assign(document.createElement("p"), { className: "error", textContent: state.startErrors[kind] }));
+        if (state.busy && !running) {
+            parts.push(Object.assign(document.createElement("p"), { className: "job-note",
+                textContent: `The GPU is busy with someone else's ${state.busy}. Yours will wait its turn.` }));
         }
-        box.hidden = false;
-        const message = Object.assign(document.createElement("p"), { textContent: jobMessage(job) });
-        if (job.state === "error") message.className = "error";
-        const parts = [message];
-        if (running) {
-            const row = Object.assign(document.createElement("div"), { className: "row" });
-            row.append(progressBar(job), button("Cancel", () => api("/api/job/cancel", { method: "POST" }).then(pollJob), "btn btn-sm"));
-            parts.push(row);
-        }
-        if (job.output && job.output.length && (running || job.state === "error")) {
-            const details = document.createElement("details");
-            details.append(Object.assign(document.createElement("summary"), { textContent: "Output" }),
-                Object.assign(document.createElement("pre"), { textContent: job.output.join("\n") }));
-            parts.push(details);
-        }
+        parts.push(...jobs.map(jobRow));
+        box.hidden = !parts.length;
         box.replaceChildren(...parts);
     }
 
     const pill = $("jobPill");
-    pill.hidden = !running;
-    if (running) {
+    const waiting = mine.filter(job => job.state === "queued").length;
+    pill.hidden = !running && !waiting;
+    if (!pill.hidden) {
+        const job = running || mine.find(job => job.state === "queued");
+        const label = running ? `${job.kind === "image" ? "Image" : "Video"} · ${jobMessage(job)}` : "Waiting for the GPU";
         const link = Object.assign(document.createElement("a"), {
             href: job.kind === "image" ? "#images" : "#videos",
-            textContent: `${job.kind === "image" ? "Image" : "Video"} · ${jobMessage(job)}`,
+            textContent: label + (waiting && running ? ` · ${waiting} more waiting` : ""),
         });
-        pill.replaceChildren(link, progressBar(job));
+        pill.replaceChildren(link, ...(running ? [progressBar(running)] : []));
     }
 }
 
@@ -159,18 +179,19 @@ export function progressBar(job) {
 export async function pollJob() {
     clearTimeout(state.jobTimer);
     try {
-        const previous = state.job;
-        const job = await api("/api/job");
-        // Keep showing a failed start (e.g. a busy GPU) instead of the idle status.
-        if (!(job.state === "idle" && previous && previous.state === "error")) state.job = job;
+        const before = new Map(state.jobs.map(job => [job.id, job.state]));
+        const result = await api("/api/jobs");
+        state.jobs = result.jobs;
+        state.busy = result.busy;
         renderJob();
-        if (previous && previous.state === "running" && job.state !== "running") {
-            loadGallery(job.kind);
+        // A job that just finished puts its file in the gallery.
+        for (const kind of new Set(result.jobs.filter(job => job.state === "done" && before.get(job.id) !== "done").map(job => job.kind))) {
+            loadGallery(kind);
         }
     } catch (error) {
-        console.log("Could not check the job:", error);
+        console.log("Could not check the jobs:", error);
     }
-    if (state.job && state.job.state === "running") state.jobTimer = setTimeout(pollJob, 2000);
+    if (state.jobs.some(active) || state.busy) state.jobTimer = setTimeout(pollJob, 2000);
 }
 
 export async function loadGallery(kind) {

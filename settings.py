@@ -1,4 +1,4 @@
-"""Site settings, saved in SQLite so every device sees the same ones."""
+"""Settings: server-wide ones (admin only) in the settings table, and each user's preferences."""
 import os
 import re
 import store
@@ -10,12 +10,20 @@ VIDEO_NEGATIVE_PROMPT = ('blurry, low quality, distorted face, deformed anatomy,
 DEFAULTS = {
     'lmstudio_url': os.environ.get('LMSTUDIO_URL', 'http://localhost:1234').rstrip('/'),
     'ollama_url': os.environ.get('OLLAMA_URL', 'http://localhost:11434').rstrip('/'),
-    'default_system_prompt': '',
-    'default_options': {},
     'unload_ollama': True,
     'image_negative_prompt': IMAGE_NEGATIVE_PROMPT,
     'video_negative_prompt': VIDEO_NEGATIVE_PROMPT,
 }
+# What every signed-in user may read of the server settings.
+PUBLIC = ('image_negative_prompt', 'video_negative_prompt')
+PREF_DEFAULTS = {
+    'default_system_prompt': '',
+    'default_options': {},
+    'enter_sends': None,     # None: on with a keyboard, off on touch screens
+    'theme': 'light',
+}
+# Before accounts these two were server settings; the first admin inherits them.
+LEGACY_PREFS = ('default_system_prompt', 'default_options')
 URL = re.compile(r'^https?://[^\s/?#]+(/[^\s?#]*)?$')
 # Model options: name -> (type, low, high). Ollama takes them all; LM Studio the ones in LMSTUDIO_OPTIONS.
 OPTIONS = {
@@ -75,12 +83,36 @@ def validate(data):
             if not isinstance(value, str) or len(value) > 300 or not URL.match(value.strip()):
                 raise ValueError('Addresses look like http://localhost:1234')
             value = value.strip().rstrip('/')
-        elif key == 'default_options':
-            value = validate_options(value)
         elif key == 'unload_ollama':
             if type(value) is not bool:
                 raise ValueError('unload_ollama must be true or false')
-        elif not isinstance(value, str) or len(value) > (20000 if key == 'default_system_prompt' else 4000):
+        elif not isinstance(value, str) or len(value) > 4000:
             raise ValueError(f'{key} is too long')
+        fields[key] = value
+    return fields
+
+
+def prefs(user):
+    return {**PREF_DEFAULTS, **{k: v for k, v in user['prefs'].items() if k in PREF_DEFAULTS}}
+
+
+def validate_prefs(data):
+    if not isinstance(data, dict):
+        raise ValueError('Send a JSON object')
+    if set(data) - set(PREF_DEFAULTS):
+        raise ValueError('Unknown preference: ' + ', '.join(sorted(set(data) - set(PREF_DEFAULTS))))
+    fields = {}
+    for key, value in data.items():
+        if key == 'default_options':
+            value = validate_options(value)
+        elif key == 'default_system_prompt':
+            if not isinstance(value, str) or len(value) > 20000:
+                raise ValueError('The system prompt is too long (20000 characters at most)')
+        elif key == 'enter_sends':
+            if value is not None and type(value) is not bool:
+                raise ValueError('enter_sends must be true, false or null')
+        elif key == 'theme':
+            if value not in ('light', 'dark'):
+                raise ValueError('theme must be light or dark')
         fields[key] = value
     return fields

@@ -9,7 +9,7 @@ import { loadSettings } from "./settings.js";
 // Start
 
 for (const id of ["prompt", "imagePrompt", "videoPrompt", "imageNegative", "videoNegative",
-                  "set-default_system_prompt", "set-image_negative_prompt", "set-video_negative_prompt"]) {
+                  "pref-default_system_prompt", "set-image_negative_prompt", "set-video_negative_prompt"]) {
     $(id).addEventListener("input", () => autoGrow($(id)));
 }
 updateImageSteps();

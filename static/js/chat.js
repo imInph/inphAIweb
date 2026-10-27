@@ -1,4 +1,4 @@
-import { $, api, autoGrow, button, copyText, icon, storageGet } from "./util.js";
+import { $, api, autoGrow, button, copyText, icon, request } from "./util.js";
 import { state } from "./state.js";
 import { modelKey, pickModel, selectedModel } from "./models.js";
 import { loadChats, renderChatList } from "./chats.js";
@@ -9,7 +9,7 @@ import { showSaved } from "./settings.js";
 // One chat
 
 export function newChatDefaults() {
-    const defaults = state.settings || {};
+    const defaults = state.me ? state.me.prefs : {};
     return { system_prompt: defaults.default_system_prompt || "", options: { ...(defaults.default_options || {}) } };
 }
 
@@ -145,7 +145,7 @@ export async function sendMessage(content, files = []) {
     try {
         const body = content === null ? { ...picked, regenerate: true }
             : { ...picked, content, attachments: files.map(file => file.id) };
-        const response = await fetch(`/api/chats/${chat.id}/messages`, {
+        const response = await request(`/api/chats/${chat.id}/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -234,8 +234,8 @@ $("composer").addEventListener("submit", async event => {
 
 export function enterSends() {
     // Unset: on with a keyboard, off on phones (where Enter is how you get a new line).
-    const saved = storageGet("inphai.enterSends");
-    return saved === null ? !matchMedia("(pointer: coarse)").matches : saved === "on";
+    const saved = state.me ? state.me.prefs.enter_sends : null;
+    return saved === null || saved === undefined ? !matchMedia("(pointer: coarse)").matches : saved;
 }
 
 $("prompt").addEventListener("keydown", event => {

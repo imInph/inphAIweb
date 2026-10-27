@@ -1,4 +1,4 @@
-import { $, api, icon, iconButton } from "./util.js";
+import { $, api, icon, iconButton, request } from "./util.js";
 import { state } from "./state.js";
 
 // Attachments
@@ -53,7 +53,7 @@ export async function addFiles(files) {
         const form = new FormData();
         form.append("file", blob, file.name);
         try {
-            const response = await fetch("/api/uploads", { method: "POST", body: form });
+            const response = await request("/api/uploads", { method: "POST", body: form });
             const result = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(result.error || `Upload failed (${response.status})`);
             Object.assign(file, result, { status: "ready" });

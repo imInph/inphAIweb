@@ -1,42 +1,45 @@
-"""Image and video jobs, and the galleries."""
-from flask import Blueprint, jsonify, request, send_from_directory
+"""Image and video jobs (the GPU queue), and each user's galleries."""
+import time
+from flask import Blueprint, g, jsonify, request, send_from_directory
 import jobs
 import store
 
 bp = Blueprint('media', __name__)
 
 
-def start_job(kind, validate):
+def queue(kind, validate):
     try:
-        settings = validate(request.get_json(silent=True))
-        jobs.start(kind, settings)
+        params = validate(request.get_json(silent=True))
+        job_id = jobs.enqueue(g.user['id'], kind, params)
     except ValueError as error:
         return jsonify(error=str(error)), 400
     except FileNotFoundError as error:
         return jsonify(error=str(error)), 503
-    except jobs.Busy as error:
-        return jsonify(error=str(error)), 409
-    return jsonify(jobs.current()), 202
+    return jsonify(jobs.describe(store.get_job(job_id))), 202
 
 
 @bp.post('/api/images')
 def generate_image():
-    return start_job('image', jobs.validate_image)
+    return queue('image', jobs.validate_image)
 
 
 @bp.post('/api/videos')
 def generate_video():
-    return start_job('video', jobs.validate_video)
+    return queue('video', jobs.validate_video)
 
 
-@bp.get('/api/job')
-def job():
-    return jsonify(jobs.current()), 200, {'Cache-Control': 'no-store'}
+@bp.get('/api/jobs')
+def my_jobs():
+    # Finished jobs stay listed for a minute, so the page sees how they ended.
+    since = request.args.get('since', type=float) or time.time() - 60
+    return jsonify(jobs.jobs_for(g.user['id'], since)), 200, {'Cache-Control': 'no-store'}
 
 
-@bp.post('/api/job/cancel')
-def cancel_job():
-    return jsonify(cancelled=jobs.cancel())
+@bp.post('/api/jobs/<int:job_id>/cancel')
+def cancel_job(job_id):
+    if not jobs.cancel(job_id, g.user):
+        return jsonify(error='That job is not waiting or running'), 404
+    return jsonify(cancelled=True)
 
 
 @bp.get('/api/media')
@@ -44,28 +47,22 @@ def media():
     kind = request.args.get('kind')
     if kind not in ('image', 'video'):
         return jsonify(error='kind must be image or video'), 400
-    return jsonify(media=store.list_media(kind))
+    return jsonify(media=store.list_media(kind, g.user['id']))
 
 
 @bp.delete('/api/media/<int:media_id>')
 def remove_media(media_id):
-    item = store.get_media(media_id)
+    item = store.get_media(media_id, g.user['id'])
     if item is None:
         return jsonify(error='No such file'), 404
-    path = jobs.OUTPUTS / item['file']
-    # Also remove the sidecar files the generators write beside it.
-    for extra in (path, path.with_suffix('.json'), path.with_suffix('.log'), path.with_suffix('.safetensors')):
-        extra.unlink(missing_ok=True)
-    if path.parent != jobs.OUTPUTS / 'images':
-        (path.parent / 'output.log').unlink(missing_ok=True)
-        try:
-            path.parent.rmdir()
-        except OSError:
-            pass
-    store.delete_media(media_id)
+    jobs.remove_media_files(item['file'])
+    store.delete_media(media_id, g.user['id'])
     return '', 204
 
 
 @bp.get('/media/<path:filename>')
 def media_file(filename):
+    # Only the file's owner; a guessed path from someone else is just "not found".
+    if store.media_owner(filename) != g.user['id']:
+        return jsonify(error='No such file'), 404
     return send_from_directory(jobs.OUTPUTS, filename, conditional=True)

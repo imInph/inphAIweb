@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+        <title>Sign in · inphAI</title>
+        <meta name="color-scheme" content="dark light">
+        <meta name="theme-color" content="#f4f6fa">
+        <script>
+            (function () {
+                try {
+                    if (localStorage.getItem("inphai.theme") === "dark") document.documentElement.setAttribute("data-theme", "dark");
+                } catch (e) { /* storage blocked: stay light */ }
+            })();
+        </script>
+        <link rel="stylesheet" href="/static/style.css">
+        <script type="module" src="/static/js/login.js"></script>
+    </head>
+    <body class="login-page">
+        <main class="card login-card">
+            <div class="brand"><span class="logo">inphAI</span></div>
+            <h1 id="loginTitle">Sign in</h1>
+            <p class="card-note" id="loginNote"></p>
+            <form id="loginForm" novalidate>
+                <label><span>Username</span>
+                    <input id="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+                </label>
+                <label><span>Password</span>
+                    <input id="password" type="password" autocomplete="current-password" required>
+                </label>
+                <label id="confirmRow" hidden><span>Password again</span>
+                    <input id="confirm" type="password" autocomplete="new-password">
+                </label>
+                <div class="error-block" id="loginError" role="alert" hidden></div>
+                <button class="btn btn-primary" id="loginButton" type="submit">Sign in</button>
+            </form>
+        </main>
+    </body>
+</html>

@@ -54,6 +54,10 @@
                 </div>
                 <div class="sidebar-foot">
                     <div class="job-pill" id="jobPill" hidden></div>
+                    <a class="account-row" href="#settings" id="accountRow" title="Your account">
+                        <span class="avatar" id="accountAvatar"></span>
+                        <span class="account-name" id="accountRowName"></span>
+                    </a>
                 </div>
             </aside>
             <div class="nav-backdrop" id="backdrop" hidden></div>
@@ -228,8 +232,52 @@
                 <section class="view settings-view" id="view-settings" aria-label="Settings" hidden>
                     <div class="settings-grid">
                         <div class="card">
-                            <div class="card-head"><h3>Connections</h3><small class="saved" data-saved="connections"></small></div>
-                            <p class="card-note">Where the site finds LM Studio and Ollama. Both use their default ports unless you change them here.</p>
+                            <div class="card-head"><h3>Account</h3><small class="saved" data-saved="account"></small></div>
+                            <p class="card-note" id="accountName"></p>
+                            <form class="password-form" id="passwordForm">
+                                <label><span>Current password</span><input type="password" id="currentPassword" autocomplete="current-password"></label>
+                                <label><span>New password</span><input type="password" id="newPassword" autocomplete="new-password" minlength="8"></label>
+                                <label><span>New password again</span><input type="password" id="newPassword2" autocomplete="new-password"></label>
+                                <div class="row-buttons">
+                                    <button class="btn" type="submit">Change password</button>
+                                    <button class="btn btn-ghost" type="button" id="signOut">Sign out</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>Chat</h3><small class="saved" data-saved="chat"></small></div>
+                            <label><span>Default system prompt for new chats</span>
+                                <textarea id="pref-default_system_prompt" data-pref="default_system_prompt" data-group="chat" rows="4" placeholder="Empty means none"></textarea>
+                            </label>
+                            <div>
+                                <div class="options-head"><span>Default model options for new chats</span></div>
+                                <div class="options-grid" id="defaultOptions"></div>
+                            </div>
+                            <label class="switch-row"><span>Enter sends the message<small>Shift+Enter always adds a new line. Off: use the send button.</small></span>
+                                <input type="checkbox" id="enterSends">
+                            </label>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>Appearance</h3></div>
+                            <div class="segmented" id="themeChoice">
+                                <button type="button" data-theme-choice="light">Light</button>
+                                <button type="button" data-theme-choice="dark">Dark</button>
+                            </div>
+                            <p class="card-note">Saved with your account, so it follows you to other devices.</p>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>Your data</h3></div>
+                            <dl class="stats" id="dataStats"></dl>
+                            <p class="card-note">Your chats, files, images and videos are only visible to you.</p>
+                            <button class="btn btn-danger" type="button" id="deleteAllChats">Delete all my chats</button>
+                        </div>
+
+                        <div class="card admin-only" hidden>
+                            <div class="card-head"><h3>Connections</h3><span class="tag">Admin</span><small class="saved" data-saved="connections"></small></div>
+                            <p class="card-note">Where the server finds LM Studio and Ollama. Both use their default ports unless you change them here.</p>
                             <div class="connection">
                                 <label><span>LM Studio</span>
                                     <input id="set-lmstudio_url" data-setting="lmstudio_url" data-group="connections" type="url" spellcheck="false" autocomplete="off">
@@ -246,22 +294,8 @@
                             </div>
                         </div>
 
-                        <div class="card">
-                            <div class="card-head"><h3>Chat</h3><small class="saved" data-saved="chat"></small></div>
-                            <label><span>Default system prompt for new chats</span>
-                                <textarea id="set-default_system_prompt" data-setting="default_system_prompt" data-group="chat" rows="4" placeholder="Empty means none"></textarea>
-                            </label>
-                            <div>
-                                <div class="options-head"><span>Default model options for new chats</span></div>
-                                <div class="options-grid" id="defaultOptions"></div>
-                            </div>
-                            <label class="switch-row"><span>Enter sends the message<small>Shift+Enter always adds a new line. Off: use the send button.</small></span>
-                                <input type="checkbox" id="enterSends">
-                            </label>
-                        </div>
-
-                        <div class="card">
-                            <div class="card-head"><h3>Generation</h3><small class="saved" data-saved="generation"></small></div>
+                        <div class="card admin-only" hidden>
+                            <div class="card-head"><h3>Generation</h3><span class="tag">Admin</span><small class="saved" data-saved="generation"></small></div>
                             <label><span>Default negative prompt for images <small class="inline-note">(Anime model)</small></span>
                                 <textarea id="set-image_negative_prompt" data-setting="image_negative_prompt" data-group="generation" rows="2"></textarea>
                             </label>
@@ -274,20 +308,18 @@
                             </label>
                         </div>
 
-                        <div class="card">
-                            <div class="card-head"><h3>Appearance</h3></div>
-                            <div class="segmented" id="themeChoice">
-                                <button type="button" data-theme-choice="light">Light</button>
-                                <button type="button" data-theme-choice="dark">Dark</button>
-                            </div>
-                            <p class="card-note">Saved in this browser only.</p>
-                        </div>
-
-                        <div class="card">
-                            <div class="card-head"><h3>Data</h3></div>
-                            <dl class="stats" id="dataStats"></dl>
-                            <p class="card-note">Everything lives in <code>data/</code> beside app.py: the chats in <code>inphai.db</code>, images and videos in <code>outputs/</code>.</p>
-                            <button class="btn btn-danger" type="button" id="deleteAllChats">Delete all chats</button>
+                        <div class="card admin-only users-card" hidden>
+                            <div class="card-head"><h3>Users</h3><span class="tag">Admin</span><small class="saved" data-saved="users"></small></div>
+                            <ul class="user-list" id="userList"></ul>
+                            <form class="add-user" id="addUserForm">
+                                <label><span>Username</span><input id="newUsername" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+                                <label><span>Password</span><input id="newUserPassword" type="password" autocomplete="new-password"></label>
+                                <label><span>Role</span>
+                                    <select id="newUserRole"><option value="user">User</option><option value="admin">Admin</option></select>
+                                </label>
+                                <button class="btn btn-primary" type="submit">Add user</button>
+                            </form>
+                            <p class="card-note" id="serverDisk"></p>
                         </div>
                     </div>
                 </section>

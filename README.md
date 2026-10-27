@@ -28,6 +28,19 @@ bash scripts/setup.sh all     # everything
 Image and video each get their own environment in `.venvs/`, because they need different
 `diffusers` versions. Chat works without either of them.
 
+## Accounts
+
+The first visit asks you to create the admin account; anything saved before accounts existed
+becomes that admin's. After that everyone signs in. Admins add people (and reset passwords, make
+admins, disable or delete accounts) in **Settings → Users**. Everyone's chats, files, images and
+videos are private to them.
+
+Server settings (connections, generation defaults) are admin only. Each person's chat defaults,
+model options, Enter-key choice and theme are saved with their account.
+
+Images and videos go into one queue for the GPU: they run in order, you see your place in line,
+and you can cancel your own (admins can cancel anyone's).
+
 ## Chat
 
 - **Files:** attach with the paperclip, drag them onto the chat, or paste. Images (PNG, JPEG,
@@ -69,8 +82,7 @@ Open http://localhost:5002 (or the server's address from another device on the n
 The Settings page holds the LM Studio and Ollama addresses, the default system prompt and
 temperature for new chats, the default negative prompts for images and videos, whether Ollama is
 unloaded before a generation, the theme, and what's stored (with a button to delete all chats).
-Everything except the theme and the Enter key choice is saved in the database, so it's the same
-on every device.
+Your own settings follow you to every device; the server ones (marked Admin) are shared.
 
 ## Notes
 

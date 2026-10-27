@@ -1,7 +1,7 @@
 """Chats, messages and their uploads."""
 import json
 import re
-from flask import Blueprint, Response, jsonify, request, send_from_directory, stream_with_context
+from flask import Blueprint, Response, g, jsonify, request, send_from_directory, stream_with_context
 import llm
 import settings
 import store
@@ -42,7 +42,7 @@ def models():
 
 @bp.get('/api/chats')
 def chats():
-    return jsonify(chats=store.list_chats())
+    return jsonify(chats=store.list_chats(g.user['id']))
 
 
 @bp.post('/api/chats')
@@ -51,41 +51,41 @@ def new_chat():
         fields = chat_fields(request.get_json(silent=True))
     except ValueError as error:
         return jsonify(error=str(error)), 400
-    return jsonify(store.get_chat(store.create_chat(fields))), 201
+    return jsonify(store.get_chat(store.create_chat(g.user['id'], fields), g.user['id'])), 201
 
 
 @bp.delete('/api/chats')
 def remove_all_chats():
-    return jsonify(deleted=store.delete_all_chats())
+    return jsonify(deleted=store.delete_all_chats(g.user['id']))
 
 
 @bp.get('/api/chats/<int:chat_id>')
 def chat(chat_id):
-    found = store.get_chat(chat_id)
+    found = store.get_chat(chat_id, g.user['id'])
     return jsonify(found) if found else (jsonify(error='No such chat'), 404)
 
 
 @bp.patch('/api/chats/<int:chat_id>')
 def edit_chat(chat_id):
-    if not store.get_chat(chat_id):
+    if not store.get_chat(chat_id, g.user['id']):
         return jsonify(error='No such chat'), 404
     try:
-        store.update_chat(chat_id, chat_fields(request.get_json(silent=True)))
+        store.update_chat(chat_id, g.user['id'], chat_fields(request.get_json(silent=True)))
     except ValueError as error:
         return jsonify(error=str(error)), 400
-    return jsonify(store.get_chat(chat_id))
+    return jsonify(store.get_chat(chat_id, g.user['id']))
 
 
 @bp.delete('/api/chats/<int:chat_id>')
 def remove_chat(chat_id):
-    return ('', 204) if store.delete_chat(chat_id) else (jsonify(error='No such chat'), 404)
+    return ('', 204) if store.delete_chat(chat_id, g.user['id']) else (jsonify(error='No such chat'), 404)
 
 
 @bp.post('/api/chats/<int:chat_id>/messages')
 def send(chat_id):
     """Save the user's message (or regenerate the last reply) and stream the answer as NDJSON."""
     data = request.get_json(silent=True)
-    chat = store.get_chat(chat_id)
+    chat = store.get_chat(chat_id, g.user['id'])
     if chat is None:
         return jsonify(error='No such chat'), 404
     try:
@@ -95,7 +95,7 @@ def send(chat_id):
         attachments = data.get('attachments') or []
         if not isinstance(attachments, list) or len(attachments) > 20 or not all(isinstance(a, str) for a in attachments):
             raise ValueError('attachments must be a list of at most 20 upload ids')
-        attachments = store.unattached(attachments)
+        attachments = store.unattached(attachments, g.user['id'])
         if not regenerate and (not isinstance(content, str) or len(content) > 200000
                                or not (content.strip() or attachments)):
             raise ValueError('Write a message or attach a file (at most 200000 characters)')
@@ -105,11 +105,11 @@ def send(chat_id):
         store.drop_trailing_replies(chat_id)
     else:
         if chat['title'] == 'New chat' and not chat['messages']:
-            first_file = store.get_attachment(attachments[0])['name'] if attachments else ''
+            first_file = store.get_attachment(attachments[0], g.user['id'])['name'] if attachments else ''
             fields['title'] = ' '.join(content.split())[:60] or first_file[:60]
         store.add_message(chat_id, 'user', content, attachments=attachments)
-    store.update_chat(chat_id, fields, touch=True)
-    chat = store.get_chat(chat_id)
+    store.update_chat(chat_id, g.user['id'], fields, touch=True)
+    chat = store.get_chat(chat_id, g.user['id'])
     if not chat['messages'] or chat['messages'][-1]['role'] != 'user':
         return jsonify(error='There is no message to answer'), 400
 
@@ -151,7 +151,7 @@ def upload():
     if file is None:
         return jsonify(error='Send the file as multipart form data, field "file"'), 400
     try:
-        return jsonify(uploads.save(file)), 201
+        return jsonify(uploads.save(g.user['id'], file)), 201
     except ValueError as error:
         return jsonify(error=str(error)), 400
 
@@ -159,12 +159,12 @@ def upload():
 @bp.delete('/api/uploads/<attachment_id>')
 def remove_upload(attachment_id):
     # Only an upload that hasn't been sent yet; sent ones belong to their chat.
-    return ('', 204) if store.delete_unattached(attachment_id) else (jsonify(error='No such upload'), 404)
+    return ('', 204) if store.delete_unattached(attachment_id, g.user['id']) else (jsonify(error='No such upload'), 404)
 
 
 @bp.get('/api/uploads/<attachment_id>')
 def upload_file(attachment_id):
-    found = store.get_attachment(attachment_id)
+    found = store.get_attachment(attachment_id, g.user['id'])
     if found is None:
         return jsonify(error='No such file'), 404
     folder, name = found['path'].split('/', 1)

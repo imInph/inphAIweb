@@ -1,4 +1,5 @@
-"""Image and video generation: one GPU job at a time, run as a subprocess in its own venv."""
+"""Image and video generation: a first-in, first-out queue of GPU jobs (saved in SQLite), run one at
+a time by a worker thread, each as a subprocess in its generator's own venv."""
 from collections import deque
 import importlib.util
 import json
@@ -30,16 +31,12 @@ spec.loader.exec_module(image_script)
 IMAGE_DEFAULTS = image_script.DEFAULTS
 VIDEO_DEFAULTS = {'width': 640, 'height': 384, 'frames': 33, 'steps': 50, 'guidance': 5.0, 'seed': 42, 'fps': 24}
 
-lock = threading.Lock()
-lines = deque(maxlen=200)
-status = {'state': 'idle'}
+lines = deque(maxlen=200)        # output of the running job
+live = {}                        # progress of the running job, mirrored into its row
 process = None
 cancelled = False
+wake = threading.Event()
 STEP_BAR = re.compile(r'(\d+)/(\d+) \[')
-
-
-class Busy(Exception):
-    pass
 
 
 def validate_image(data):
@@ -73,45 +70,77 @@ def validate_video(data):
     return settings
 
 
-def current():
-    return {**status, 'output': list(lines)[-20:]}
-
-
-def start(kind, settings):
-    global cancelled
+def check_environment(kind):
     if not Path(PYTHON[kind]).is_file():
         raise FileNotFoundError(f'No {kind} environment at {PYTHON[kind]}; run bash scripts/setup.sh {kind}')
-    if not lock.acquire(blocking=False):
-        raise Busy(f"A{'n' if status.get('kind') == 'image' else ''} {status.get('kind')} is already generating")
-    cancelled = False
-    lines.clear()
-    status.clear()
-    status.update(state='running', kind=kind, stage='starting', prompt=settings['prompt'],
-                  completed_steps=0, total_steps=settings['steps'], started_at=time.time(), error=None)
-    threading.Thread(target=run, args=(kind, settings), daemon=True).start()
 
 
-def cancel():
+def enqueue(user_id, kind, params):
+    check_environment(kind)
+    job_id = store.add_job(user_id, kind, params)
+    wake.set()
+    return job_id
+
+
+def describe(job):
+    """A job as the page sees it: its place in line, and the output while it runs."""
+    job = dict(job)
+    if job['state'] == 'queued':
+        job['ahead'] = store.queue_ahead(job['id'])
+    if job['state'] == 'running':
+        job.update(live)
+        job['output'] = list(lines)[-20:]
+    if job['media_id']:
+        job['media'] = store.get_media(job['media_id'], job['user_id'])
+    return job
+
+
+def jobs_for(user_id, since):
+    running = store.running_job()
+    return {'jobs': [describe(job) for job in store.user_jobs(user_id, since)],
+            # Someone else's job holds the GPU: say what kind, not whose or what.
+            'busy': running['kind'] if running and running['user_id'] != user_id else None}
+
+
+def cancel(job_id, user):
     global cancelled
-    if status.get('state') == 'running' and process is not None:
+    job = store.get_job(job_id)
+    if job is None or (job['user_id'] != user['id'] and user['role'] != 'admin'):
+        return False
+    if job['state'] == 'queued':
+        return store.cancel_queued_job(job_id)
+    if job['state'] == 'running' and process is not None and live.get('id') == job_id:
         cancelled = True
         process.terminate()
         return True
     return False
 
 
-def command_for(kind, settings):
+def remove_media_files(file):
+    """Delete a finished image/video and the sidecar files its generator wrote beside it."""
+    path = OUTPUTS / file
+    for extra in (path, path.with_suffix('.json'), path.with_suffix('.log'), path.with_suffix('.safetensors')):
+        extra.unlink(missing_ok=True)
+    if path.parent != OUTPUTS / 'images':
+        (path.parent / 'output.log').unlink(missing_ok=True)
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
+
+
+def command_for(kind, params):
     if kind == 'image':
         folder = OUTPUTS / 'images'
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{settings['model']}-{time.time_ns()}.png"
+        path = folder / f"{params['model']}-{time.time_ns()}.png"
         command = [PYTHON[kind], '-u', str(IMAGE_SCRIPT), f'--output={path}']
-        command += [f"--{key.replace('_', '-')}={value}" for key, value in settings.items()]
+        command += [f"--{key.replace('_', '-')}={value}" for key, value in params.items()]
         return command, path.with_suffix('.log'), lambda: path
     (OUTPUTS / 'videos').mkdir(parents=True, exist_ok=True)
     folder = Path(tempfile.mkdtemp(prefix='run-', dir=OUTPUTS / 'videos'))
     command = [PYTHON[kind], '-u', str(VIDEO_SCRIPT), f'--output-dir={folder}']
-    command += [f"--{key.replace('_', '-')}={value}" for key, value in settings.items()]
+    command += [f"--{key.replace('_', '-')}={value}" for key, value in params.items()]
     return command, folder / 'output.log', lambda: next(folder.glob('*.mp4'), None)
 
 
@@ -119,25 +148,34 @@ def read_progress(kind, line):
     if kind == 'image':
         if line.startswith('IMAGE_PROGRESS '):
             event = json.loads(line[len('IMAGE_PROGRESS '):])
-            status.update({key: event[key] for key in ('stage', 'completed_steps', 'total_steps') if key in event})
+            live.update({key: event[key] for key in ('stage', 'completed_steps', 'total_steps') if key in event})
         return
     # generate.py prints plain lines; diffusers' progress bar gives the steps.
     for text, stage in (('Loading model', 'loading_model'), ('generating latents', 'generating'),
                         ('Decoding on CPU', 'decoding'), ('Saved video', 'saving')):
         if text in line:
-            status['stage'] = stage
+            live['stage'] = stage
     bar = STEP_BAR.search(line)
-    if bar and status['stage'] == 'generating' and int(bar.group(2)) == status['total_steps']:
-        status['completed_steps'] = int(bar.group(1))
+    if bar and live['stage'] == 'generating' and int(bar.group(2)) == live['total_steps']:
+        live['completed_steps'] = int(bar.group(1))
 
 
-def run(kind, settings):
-    global process
+def run(job):
+    """Run one job to the end. Only the worker thread calls this, so one runs at a time."""
+    global process, cancelled
+    kind, params = job['kind'], job['settings']
+    cancelled = False
+    lines.clear()
+    live.clear()
+    live.update(id=job['id'], stage='starting', completed_steps=0, total_steps=params['steps'])
+    store.update_job(job['id'], {'state': 'running', 'stage': 'starting', 'started_at': time.time()})
+    result = {}
     try:
         freed = llm.unload_ollama() if settings.get('unload_ollama') else []
         if freed:
             lines.append('Unloaded from Ollama to free the GPU: ' + ', '.join(freed))
-        command, log_path, find_output = command_for(kind, settings)
+        check_environment(kind)
+        command, log_path, find_output = command_for(kind, params)
         start_time = time.monotonic()
         with log_path.open('w', buffering=1) as log:
             # Text mode splits on \r too, so each progress bar update arrives as a line.
@@ -154,16 +192,16 @@ def run(kind, settings):
                     read_progress(kind, line)
             code = process.wait()
         if cancelled:
-            status.update(state='cancelled', stage='cancelled')
+            result = {'state': 'cancelled', 'stage': 'cancelled'}
             return
         if code:
             raise RuntimeError(f'The {kind} generator exited with code {code}; see {log_path.relative_to(ROOT)}')
         path = find_output()
         if path is None or not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError(f'The {kind} generator finished without producing a file')
-        media_id = store.add_media(kind, settings['prompt'], settings, path.relative_to(OUTPUTS).as_posix(),
-                                   round(time.monotonic() - start_time, 1))
-        status.update(state='done', stage='complete', media=store.get_media(media_id))
+        media_id = store.add_media(job['user_id'], kind, params['prompt'], params,
+                                   path.relative_to(OUTPUTS).as_posix(), round(time.monotonic() - start_time, 1))
+        result = {'state': 'done', 'stage': 'complete', 'media_id': media_id}
     except Exception as error:
         if process is not None and process.poll() is None:
             process.terminate()
@@ -172,8 +210,28 @@ def run(kind, settings):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-        status.update(state='error', stage='error', error=str(error))
+        result = {'state': 'error', 'stage': 'error', 'error': str(error)}
     finally:
         process = None
-        status['finished_at'] = time.time()
-        lock.release()
+        store.update_job(job['id'], {**result, 'completed_steps': live.get('completed_steps', 0),
+                                     'total_steps': live.get('total_steps', 0), 'finished_at': time.time()})
+        live.clear()
+
+
+def worker():
+    while True:
+        job = store.next_queued_job()
+        if job is None:
+            wake.wait(timeout=30)
+            wake.clear()
+            continue
+        try:
+            run(job)
+        except Exception as error:
+            # Never let one bad job stop the queue.
+            print(f'Job {job["id"]} failed outside the generator: {error}', flush=True)
+            store.update_job(job['id'], {'state': 'error', 'error': str(error), 'finished_at': time.time()})
+
+
+def start_worker():
+    threading.Thread(target=worker, name='gpu-queue', daemon=True).start()

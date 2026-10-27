@@ -49,7 +49,7 @@ def plain_text(data):
     return data.decode('latin-1')
 
 
-def save(file):
+def save(user_id, file):
     """Store one uploaded file (a werkzeug FileStorage) and return its attachment record."""
     data = file.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
@@ -72,7 +72,7 @@ def save(file):
     folder = store.UPLOADS / attachment_id
     folder.mkdir(parents=True)
     (folder / name).write_bytes(data)
-    return store.add_attachment(attachment_id, kind, name, mime, len(data), f'{attachment_id}/{name}', text, truncated)
+    return store.add_attachment(user_id, attachment_id, kind, name, mime, len(data), f'{attachment_id}/{name}', text, truncated)
 
 
 def with_files(content, attachments):

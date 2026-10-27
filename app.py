@@ -2,15 +2,19 @@
 import os
 from flask import Flask, jsonify
 from werkzeug.exceptions import HTTPException
+import auth
+import jobs
 import store
 import uploads
-from routes import chat, config, media
+from routes import account, chat, config, media
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = uploads.MAX_BYTES + 1024 * 1024
 PORT = int(os.environ.get('PORT', '5002'))
 store.init()
-for blueprint in (chat.bp, config.bp, media.bp):
+jobs.start_worker()
+app.before_request(auth.guard)
+for blueprint in (account.bp, chat.bp, config.bp, media.bp):
     app.register_blueprint(blueprint)
 
 

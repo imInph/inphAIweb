@@ -1,4 +1,4 @@
-import { $, autoGrow, storageSet } from "./util.js";
+import { $, api, autoGrow, storageSet } from "./util.js";
 import { state } from "./state.js";
 import { openChat } from "./chat.js";
 import { loadGallery } from "./media.js";
@@ -51,10 +51,15 @@ export function tick() {
     $("clock").textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
-export function setTheme(theme) {
+export function setTheme(theme, save = true) {
     document.documentElement.setAttribute("data-theme", theme);
     document.querySelector('meta[name="theme-color"]').setAttribute("content", theme === "dark" ? "#0b0d12" : "#f4f6fa");
+    // This browser keeps a copy so the next page load paints the right theme at once.
     storageSet("inphai.theme", theme);
+    if (save && state.me && state.me.prefs.theme !== theme) {
+        state.me.prefs.theme = theme;
+        api("/api/me/prefs", { method: "PATCH", body: { theme } }).catch(console.error);
+    }
     document.querySelectorAll("[data-theme-choice]").forEach(b => b.classList.toggle("on", b.dataset.themeChoice === theme));
 }
 
