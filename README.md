@@ -22,6 +22,7 @@ Then set up the parts you want:
 bash scripts/setup.sh app     # the site itself (just Flask)
 bash scripts/setup.sh image   # ROCm PyTorch + image models (about 38 GB download)
 bash scripts/setup.sh video   # ROCm PyTorch + Wan2.2 (downloads tens of GB on the first video)
+bash scripts/setup.sh voice   # Whisper for the microphone (CPU only)
 bash scripts/setup.sh all     # everything
 ```
 
@@ -100,6 +101,34 @@ composer lets the model decide on its own to search the web, open a page, search
 calculate, check the date and time, or draw an image (queued on the GPU and attached to the reply
 when done). Up to five rounds of tools per reply; each step is listed above the answer. Only these
 built-in tools exist: nothing a user writes runs on the server.
+
+## Voice
+
+- **Speak a message:** the microphone in the composer records you and Whisper (faster-whisper,
+  on the CPU so the GPU stays free) turns it into text in the message box. Set it up with
+  `bash scripts/setup.sh voice`; the model (default `small`, an admin setting) downloads from
+  Hugging Face on the first recording.
+- **Read aloud:** "Read aloud" under any reply, or switch on reading every reply, in Settings →
+  Voice. It uses your device's own voices, so pick one per device there.
+
+## HTTPS (needed for the microphone from other devices)
+
+Browsers only allow the microphone (and installing the site as an app) on HTTPS, or at
+`localhost` on the server itself. To use them from your phone, give the site a certificate: put
+`cert.pem` and `key.pem` in `data/certs/` (or point `INPHAI_CERT` and `INPHAI_KEY` at them) and
+`bash start.sh` serves HTTPS on the same port.
+
+With [mkcert](https://github.com/FiloSottile/mkcert), on the server:
+
+```sh
+mkcert -install
+mkdir -p data/certs
+mkcert -cert-file data/certs/cert.pem -key-file data/certs/key.pem localhost 127.0.0.1 192.168.1.50 myserver.local
+```
+
+(use your server's own address and name), then install mkcert's root certificate on the phone
+(the `rootCA.pem` in `mkcert -CAROOT`) so it trusts it. Or put the site behind Tailscale's HTTPS
+(`tailscale serve`, see Tailscale's docs) and skip certificates entirely.
 
 ## Models page
 

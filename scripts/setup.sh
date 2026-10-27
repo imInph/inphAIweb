@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# bash scripts/setup.sh app|image|video|all
+# bash scripts/setup.sh app|image|video|voice|all
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${1:-}"
 case "$TARGET" in
-    app|image|video|all) ;;
-    *) echo "Usage: bash scripts/setup.sh app|image|video|all" >&2; exit 2 ;;
+    app|image|video|voice|all) ;;
+    *) echo "Usage: bash scripts/setup.sh app|image|video|voice|all" >&2; exit 2 ;;
 esac
 
 if command -v uv >/dev/null 2>&1; then
@@ -61,6 +61,11 @@ if [[ "$TARGET" == image || "$TARGET" == all ]]; then
     setup_gpu image
     # About 38 GB: WAI-Illustrious v17 and Z-Image-Turbo.
     HF_HUB_DISABLE_XET=1 "$ROOT/.venvs/image/bin/python" -u "$ROOT/generators/image/download_models.py"
+fi
+if [[ "$TARGET" == voice || "$TARGET" == all ]]; then
+    # CPU only: no PyTorch, no GPU. The Whisper model downloads on the first recording.
+    make_env voice
+    "$ROOT/.venvs/voice/bin/python" -m pip install -r "$ROOT/generators/voice/requirements.txt"
 fi
 if [[ "$TARGET" == video || "$TARGET" == all ]]; then
     setup_gpu video

@@ -18,6 +18,8 @@ DEFAULTS = {
     # Web search: a SearXNG instance with its JSON format switched on, and how many pages to read.
     'searxng_url': os.environ.get('SEARXNG_URL', 'http://localhost:8080').rstrip('/'),
     'web_results': 5,
+    # Speech-to-text (faster-whisper on the CPU): a bigger model is more accurate and slower.
+    'whisper_model': 'small',
     'image_negative_prompt': IMAGE_NEGATIVE_PROMPT,
     'video_negative_prompt': VIDEO_NEGATIVE_PROMPT,
 }
@@ -30,6 +32,8 @@ PREF_DEFAULTS = {
     'theme': 'light',
     'auto_title': True,      # the model names a chat after its first reply
     'use_memories': True,    # add your saved memories to every chat's instructions
+    'read_rate': 1.0,        # read-aloud speed
+    'auto_read': False,      # read every reply aloud when it's finished
 }
 # Before accounts these two were server settings; the first admin inherits them.
 LEGACY_PREFS = ('default_system_prompt', 'default_options')
@@ -102,6 +106,9 @@ def validate(data):
             if not isinstance(value, str) or not value.strip() or len(value) > 300:
                 raise ValueError('Enter the name of an embedding model')
             value = value.strip()
+        elif key == 'whisper_model':
+            if value not in ('tiny', 'base', 'small', 'medium', 'large-v3'):
+                raise ValueError('whisper_model must be tiny, base, small, medium or large-v3')
         elif key == 'web_results':
             if type(value) is not int or not 1 <= value <= 10:
                 raise ValueError('web_results must be a whole number from 1 to 10')
@@ -133,7 +140,10 @@ def validate_prefs(data):
         elif key == 'enter_sends':
             if value is not None and type(value) is not bool:
                 raise ValueError('enter_sends must be true, false or null')
-        elif key in ('auto_title', 'use_memories'):
+        elif key == 'read_rate':
+            if type(value) not in (int, float) or not 0.5 <= value <= 2:
+                raise ValueError('read_rate must be from 0.5 to 2')
+        elif key in ('auto_title', 'use_memories', 'auto_read'):
             if type(value) is not bool:
                 raise ValueError(f'{key} must be true or false')
         elif key == 'theme':

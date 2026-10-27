@@ -142,6 +142,7 @@
                     <form class="composer" id="composer">
                         <div class="slash-menu" id="slashMenu" role="listbox" hidden></div>
                         <div class="slash-menu" id="hashMenu" role="listbox" hidden></div>
+                        <div class="recording" id="recording" hidden></div>
                         <div class="attachments" id="chatKnowledge" hidden></div>
                         <div class="attachments" id="pendingFiles" hidden></div>
                         <div class="composer-row">
@@ -156,6 +157,9 @@
                                 <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.4-3.4a5.8 5.8 0 0 1-7.7 7.7l-6.3 6.3a2.1 2.1 0 0 1-3-3l6.3-6.3a5.8 5.8 0 0 1 7.7-7.7z"/></svg>
                             </button>
                             <textarea id="prompt" aria-label="Message" placeholder="Send a message" rows="1"></textarea>
+                            <button class="btn btn-ghost btn-icon" id="micButton" type="button" title="Speak your message" aria-label="Speak your message" aria-pressed="false" hidden>
+                                <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5v3"/></svg>
+                            </button>
                             <button class="btn btn-primary btn-icon" id="sendButton" type="submit" aria-label="Send" title="Send"></button>
                         </div>
                     </form>
@@ -383,6 +387,21 @@
                         </div>
 
                         <div class="card">
+                            <div class="card-head"><h3>Voice</h3><small class="saved" data-saved="voice"></small></div>
+                            <label><span>Read-aloud voice <small class="inline-note">(this device's voices)</small></span>
+                                <select id="readVoice"></select>
+                            </label>
+                            <label><span>Speed <output id="readRateValue"></output></span>
+                                <input type="range" id="pref-read_rate" data-pref="read_rate" data-group="voice" min="0.5" max="2" step="0.1">
+                            </label>
+                            <label class="switch-row"><span>Read every reply aloud<small>When it's finished. "Read aloud" under a reply works either way.</small></span>
+                                <input type="checkbox" id="pref-auto_read" data-pref="auto_read" data-group="voice">
+                            </label>
+                            <button class="btn btn-sm" type="button" id="testVoice">Try it</button>
+                            <p class="card-note" id="micNote"></p>
+                        </div>
+
+                        <div class="card">
                             <div class="card-head"><h3>Your data</h3></div>
                             <dl class="stats" id="dataStats"></dl>
                             <p class="card-note">Your chats, files, images and videos are only visible to you.</p>
@@ -510,6 +529,18 @@
                                 <label><span>SearXNG</span><input id="set-searxng_url" data-setting="searxng_url" data-group="websearch" type="url" spellcheck="false"></label>
                                 <label class="narrow"><span>Pages to read</span><input id="set-web_results" data-setting="web_results" data-group="websearch" type="number" min="1" max="10"></label>
                             </div>
+                        </div>
+
+                        <div class="card admin-only" hidden>
+                            <div class="card-head"><h3>Speech to text</h3><span class="tag">Admin</span><small class="saved" data-saved="whisper"></small></div>
+                            <p class="card-note">The microphone button uses Whisper on this server's CPU (set up with <code>bash scripts/setup.sh voice</code>). A bigger model is more accurate and slower; it downloads the first time it's used.</p>
+                            <label><span>Whisper model</span>
+                                <select id="set-whisper_model" data-setting="whisper_model" data-group="whisper">
+                                    <option value="tiny">tiny · fastest</option><option value="base">base</option>
+                                    <option value="small">small · default</option><option value="medium">medium</option>
+                                    <option value="large-v3">large-v3 · most accurate, slow on a CPU</option>
+                                </select>
+                            </label>
                         </div>
 
                         <div class="card admin-only users-card" hidden>

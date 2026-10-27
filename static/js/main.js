@@ -1,3 +1,4 @@
+import { setUpVoice } from "./voice.js";
 import { loadCollections } from "./knowledge.js";
 import { $, autoGrow } from "./util.js";
 import { showView, tick } from "./shell.js";
@@ -25,5 +26,6 @@ showView();
 loadModels();
 loadLibrary();
 loadCollections();
+setUpVoice();
 loadChats();
 pollJob();

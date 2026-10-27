@@ -1,3 +1,4 @@
+import { autoRead, readAloudButton } from "./voice.js";
 import { modelCapabilities } from "./options.js";
 import { pollJob } from "./media.js";
 import { renderChatKnowledge, sourcesElement } from "./knowledge.js";
@@ -204,7 +205,7 @@ export function messageElement(message) {
         if (message.model) meta.append(Object.assign(document.createElement("span"), { textContent: statsText(message) }));
         if (!editing && !state.live) {
             const copy = button("Copy", () => copyText(splitThinking(message).content || message.content, copy));
-            meta.append(copy, button("Regenerate", () => send({ replyTo: message.parent_id })),
+            meta.append(copy, readAloudButton(message), button("Regenerate", () => send({ replyTo: message.parent_id })),
                 button("Edit", () => { state.editing = message.id; renderMessages(); }),
                 button("Delete", () => deleteMessage(message)));
         }
@@ -413,6 +414,7 @@ export async function send({ content = "", files = [], edit = null, replyTo = nu
     }
     loadChats();
     if (live.streams.some(stream => stream.queuedJob)) pollJob();
+    if (live.streams.length === 1 && !live.streams[0].error) autoRead(state.chat.messages[state.chat.messages.length - 1]);
     // The model writes a title after the first reply; pick it up when it's there.
     if (state.chat.messages.length === 2 && state.me && state.me.prefs.auto_title) {
         setTimeout(loadChats, 3000);

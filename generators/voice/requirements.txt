@@ -1,0 +1,3 @@
+# Speech-to-text for the microphone button. Runs on the CPU (int8), so the GPU stays free.
+# The model (tiny/base/small/medium/large-v3, set in Settings) downloads from Hugging Face on first use.
+faster-whisper==1.2.1

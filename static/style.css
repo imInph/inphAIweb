@@ -656,6 +656,14 @@ body.login-page { overflow: auto; display: grid; place-items: center; min-height
 .tool-steps small { color: var(--text-faint); }
 .message.assistant .message-files { justify-content: flex-start; margin: 10px 0 0; }
 #toolsButton[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+#micButton[aria-pressed="true"] { background: var(--bad); color: #fff; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--bad) 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { #micButton[aria-pressed="true"] { animation: none; } }
+.recording { padding: 4px 10px 0; font-size: .82rem; color: var(--text-dim); }
+.recording.live { color: var(--bad); font-weight: 560; }
+.recording.error { color: var(--bad); }
+input[type="range"] { padding: 0; accent-color: var(--accent); background: none; border: none; }
+label > span output { color: var(--text-faint); font-weight: 500; margin-left: 4px; }
 .source-link { margin-left: 8px; font-size: .78rem; }
 #webButton[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .connection label.narrow { width: 130px; }

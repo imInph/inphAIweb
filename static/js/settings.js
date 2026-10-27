@@ -1,3 +1,4 @@
+import { paintVoiceSettings } from "./voice.js";
 import { $, api, autoGrow, iconButton, request } from "./util.js";
 import { state } from "./state.js";
 import { setTheme } from "./shell.js";
@@ -89,6 +90,7 @@ export async function loadSettingsPage() {
     $("enterSends").checked = enterSends();
     renderOptions($("defaultOptions"), prefs.default_options, options => savePrefs({ default_options: options }, "chat"), null);
     setTheme(prefs.theme, false);
+    paintVoiceSettings();
 
     const mine = await api("/api/me/data");
     state.myData = mine;
@@ -127,7 +129,7 @@ $("signOut").addEventListener("click", async () => {
     location.href = "/login";
 });
 
-document.querySelectorAll("[data-pref]").forEach(field => field.addEventListener("change", () =>
+document.querySelectorAll("[data-pref]:not([type=range])").forEach(field => field.addEventListener("change", () =>
     savePrefs({ [field.dataset.pref]: field.type === "checkbox" ? field.checked : field.value }, field.dataset.group)));
 
 $("importChats").addEventListener("click", () => $("importFile").click());
