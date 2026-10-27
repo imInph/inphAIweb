@@ -655,6 +655,11 @@ body.login-page { overflow: auto; display: grid; place-items: center; min-height
 .tool-steps ul { margin: 6px 0 0; padding-left: 1.2em; }
 .tool-steps small { color: var(--text-faint); }
 .message.assistant .message-files { justify-content: flex-start; margin: 10px 0 0; }
+.generation { display: flex; flex-direction: column; gap: 6px; }
+.generation p { margin: 0; color: var(--text-dim); font-weight: 560; }
+.generation .message-files { margin: 0; }
+.generation .message-files a.image-file img { max-width: min(512px, 100%); max-height: 512px; }
+.message-video { max-width: min(640px, 100%); border-radius: var(--radius-sm); background: #000; }
 #toolsButton[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 #micButton[aria-pressed="true"] { background: var(--bad); color: #fff; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--bad) 25%, transparent); } }

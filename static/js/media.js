@@ -1,4 +1,5 @@
-import { renderMessages } from "./chat.js";
+import { openChat, renderMessages } from "./chat.js";
+import { renderPending } from "./attachments.js";
 import { $, api, autoGrow, button, timeAgo } from "./util.js";
 import { state } from "./state.js";
 
@@ -188,8 +189,12 @@ export async function pollJob() {
         // A job that just finished puts its file in the gallery (and in the chat that asked for it).
         const finished = result.jobs.filter(job => job.state === "done" && before.get(job.id) !== "done");
         for (const kind of new Set(finished.map(job => job.kind))) loadGallery(kind);
-        if (state.chat && !state.live && finished.some(job => job.chat_id === state.chat.id)) {
-            state.chat = await api(`/api/chats/${state.chat.id}`);
+        if (state.chat && !state.live && result.jobs.some(job => job.chat_id === state.chat.id)) {
+            // A chat waiting on a job: show its progress, and its file once it's done.
+            if (finished.some(job => job.chat_id === state.chat.id)
+                || result.jobs.some(job => job.chat_id === state.chat.id && !active(job) && before.get(job.id) && before.get(job.id) !== job.state)) {
+                state.chat = await api(`/api/chats/${state.chat.id}`);
+            }
             renderMessages();
         }
     } catch (error) {
@@ -232,6 +237,7 @@ export async function loadGallery(kind) {
         caption.append(Object.assign(document.createElement("div"), { className: "details", textContent: `${details} · ${timeAgo(item.created_at)}` }));
         const actions = Object.assign(document.createElement("div"), { className: "actions" });
         const download = Object.assign(document.createElement("a"), { className: "btn btn-ghost btn-sm", href: item.url, download: "", textContent: "Download" });
+        if (kind === "image") actions.append(button("Ask about this", () => askAbout(item)));
         actions.append(button("Reuse", () => reuseSettings(kind, s)), download, button("Delete", async () => {
             if (!confirm(`Delete this ${kind}?`)) return;
             await api(`/api/media/${item.id}`, { method: "DELETE" }).catch(error => alert(error.message));
@@ -276,4 +282,17 @@ export function reuseSettings(kind, s) {
     }
     $(`view-${kind}s`).scrollTop = 0;
     prompt.focus();
+}
+
+async function askAbout(item) {
+    try {
+        const attachment = await api(`/api/media/${item.id}/attach`, { method: "POST" });
+        location.hash = "#chat";
+        await openChat(null);
+        state.pending.push({ ...attachment, status: "ready" });
+        renderPending();
+        $("prompt").focus();
+    } catch (error) {
+        alert(error.message);
+    }
 }

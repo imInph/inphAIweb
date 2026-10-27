@@ -1,6 +1,6 @@
 import { autoRead, readAloudButton } from "./voice.js";
 import { modelCapabilities } from "./options.js";
-import { pollJob } from "./media.js";
+import { jobMessage, pollJob, progressBar } from "./media.js";
 import { renderChatKnowledge, sourcesElement } from "./knowledge.js";
 import { $, api, autoGrow, button, copyText, icon, iconButton, request, storageGet, storageSet } from "./util.js";
 import { state } from "./state.js";
@@ -90,6 +90,9 @@ async function switchBranch(messageId) {
 function filesElement(files) {
     const list = Object.assign(document.createElement("div"), { className: "message-files" });
     list.append(...files.map(file => {
+        if (file.kind === "video") {
+            return Object.assign(document.createElement("video"), { className: "message-video", src: file.url, controls: true, preload: "metadata", loop: true });
+        }
         if (file.kind !== "image") return fileChip(file);
         const link = Object.assign(document.createElement("a"), { className: "image-file", href: file.url || file.preview, target: "_blank" });
         link.append(Object.assign(document.createElement("img"), { src: file.url || file.preview, alt: file.name, loading: "lazy" }));
@@ -198,20 +201,73 @@ export function messageElement(message) {
                 state.chat = await api(`/api/chats/${state.chat.id}/messages/${message.id}`, { method: "PATCH", body: { content } });
                 renderMessages();
             }, () => { state.editing = null; renderMessages(); }));
+        } else if (generation(message)) {
+            box.append(generationBody(message));
         } else {
             box.append(...replyBody(message, false));
         }
         if (switcher) meta.append(switcher);
         if (message.model) meta.append(Object.assign(document.createElement("span"), { textContent: statsText(message) }));
-        if (!editing && !state.live) {
+        if (!editing && !state.live && generation(message)) {
+            meta.append(button("Delete", () => deleteMessage(message)));
+        } else if (!editing && !state.live) {
             const copy = button("Copy", () => copyText(splitThinking(message).content || message.content, copy));
-            meta.append(copy, readAloudButton(message), button("Regenerate", () => send({ replyTo: message.parent_id })),
+            meta.append(copy, readAloudButton(message), button("Image of this", () => imageOf(message)),
+                button("Regenerate", () => send({ replyTo: message.parent_id })),
                 button("Edit", () => { state.editing = message.id; renderMessages(); }),
                 button("Delete", () => deleteMessage(message)));
         }
     }
     box.append(meta);
     return box;
+}
+
+// /image, /photo, /video: the reply waits for a GPU job and gets its file.
+
+const generation = message => (message.tools || []).find(step => step.job_id && /^generate_(image|video)$/.test(step.name));
+
+function generationBody(message) {
+    const step = generation(message);
+    const box = Object.assign(document.createElement("div"), { className: "generation" });
+    if (message.attachments && message.attachments.length) {
+        box.append(filesElement(message.attachments));
+        if (message.content) box.append(Object.assign(document.createElement("small"), { textContent: message.content }));
+        return box;
+    }
+    if (message.content) {
+        box.append(Object.assign(document.createElement("p"), { className: "error-text", textContent: message.content }));
+        return box;
+    }
+    const job = state.jobs.find(j => j.id === step.job_id);
+    const kind = step.name === "generate_video" ? "video" : "image";
+    box.append(Object.assign(document.createElement("p"), {
+        textContent: job ? jobMessage(job) : `Your ${kind} is in the queue...` }));
+    if (job && job.state === "running") box.append(progressBar(job));
+    return box;
+}
+
+function imageOf(message) {
+    const text = splitThinking(message).content.replace(/```[\s\S]*?```/g, " ").replace(/[*_`#>\[\]]/g, "").replace(/\s+/g, " ").trim();
+    $("prompt").value = `/image ${text.slice(0, 400)}`;
+    autoGrow($("prompt"));
+    $("prompt").focus();
+}
+
+export async function generateFromCommand(command, prompt) {
+    const picked = selectedModel();
+    if (!state.chat) {
+        state.chat = await api("/api/chats", {
+            method: "POST",
+            body: { backend: picked ? picked.backend : "ollama", model: picked ? picked.model : "none",
+                    system_prompt: $("systemPrompt").value, options: state.draft.options || {} },
+        });
+        history.replaceState(null, "", `#chat/${state.chat.id}`);
+    }
+    state.chat = await api(`/api/chats/${state.chat.id}/generate`, { method: "POST", body: { command, prompt } });
+    renderMessages();
+    loadChats();
+    pollJob();
+    return true;
 }
 
 async function deleteMessage(message) {
@@ -514,8 +570,11 @@ $("composer").addEventListener("submit", async event => {
     const sentPending = state.pending;
     state.pending = [];
     renderPending();
+    const command = content.match(/^\/(image|photo|video)\s+([\s\S]+)/);
     try {
-        if (!(await send({ content, files }))) throw new Error("not sent");
+        if (command && !files.length) {
+            await generateFromCommand(command[1], command[2]);
+        } else if (!(await send({ content, files }))) throw new Error("not sent");
         sentPending.filter(file => file.status === "error").forEach(file => file.preview && URL.revokeObjectURL(file.preview));
     } catch (error) {
         // Nothing was sent: put the message and its files back.

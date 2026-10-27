@@ -1,5 +1,7 @@
 """Image and video jobs (the GPU queue), and each user's galleries."""
+import shutil
 import time
+import uuid
 from flask import Blueprint, g, jsonify, request, send_from_directory
 import jobs
 import store
@@ -58,6 +60,20 @@ def remove_media(media_id):
     jobs.remove_media_files(item['file'])
     store.delete_media(media_id, g.user['id'])
     return '', 204
+
+
+@bp.post('/api/media/<int:media_id>/attach')
+def attach_media(media_id):
+    """Make a gallery image into an attachment for a new message ("Ask about this")."""
+    item = store.get_media(media_id, g.user['id'])
+    if item is None or item['kind'] != 'image':
+        return jsonify(error='No such image'), 404
+    source = jobs.OUTPUTS / item['file']
+    attachment_id = uuid.uuid4().hex
+    (store.UPLOADS / attachment_id).mkdir(parents=True)
+    shutil.copyfile(source, store.UPLOADS / attachment_id / source.name)
+    return jsonify(store.add_attachment(g.user['id'], attachment_id, 'image', source.name, 'image/png',
+                                        source.stat().st_size, f'{attachment_id}/{source.name}')), 201
 
 
 @bp.get('/media/<path:filename>')

@@ -94,6 +94,14 @@ Then switch on its JSON output: in `~/searxng/settings.yml` find `search:` → `
 are admin settings (Settings → Web search). Only admins can make the server open pages on your own
 network (so nobody can point it at your router or the LLM servers).
 
+## Images and videos from a chat
+
+Start a message with `/image` (anime, WAI-Illustrious), `/photo` (realistic, Z-Image-Turbo) or
+`/video` (Wan2.2) and what to make: it joins the GPU queue, the reply shows its progress, and the
+picture or clip appears in the chat (and in the Images or Videos gallery). "Image of this" under a
+reply starts an `/image` from it, and "Ask about this" in the Images gallery starts a chat with
+that image attached (for a model that sees images).
+
 ## Tools
 
 For models that can call tools (the Models page marks them "uses tools"), the wrench in the

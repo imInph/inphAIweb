@@ -102,6 +102,8 @@ def post_to_chat(job_id):
     mime = 'image/png' if source.suffix == '.png' else 'video/mp4'
     store.add_attachment(job['user_id'], attachment_id, 'image' if job['kind'] == 'image' else 'video', source.name, mime,
                          source.stat().st_size, f'{attachment_id}/{source.name}', message_id=job['message_id'])
+    if not message['content']:
+        store.edit_message(job['chat_id'], job['message_id'], f"Done in {round(media['seconds'] or 0)} s.")
     store.set_job_message(job_id, None)   # attached: don't do it twice
 
 
@@ -241,6 +243,9 @@ def run(job):
         live.clear()
         if result.get('state') == 'done':
             post_to_chat(job['id'])
+        elif job.get('chat_id') and job.get('message_id'):
+            reason = result.get('error') or 'it was cancelled'
+            store.edit_message(job['chat_id'], job['message_id'], f"The {kind} couldn't be made: {reason}")
 
 
 def worker():

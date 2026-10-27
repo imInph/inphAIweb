@@ -674,6 +674,11 @@ def set_leaf(chat_id, message_id):
         db.execute('UPDATE chats SET leaf_id = ?, updated_at = ? WHERE id = ?', (message_id, time.time(), chat_id))
 
 
+def update_message_tools(message_id, tools):
+    with connect() as db:
+        db.execute('UPDATE messages SET tools = ? WHERE id = ?', (json.dumps(tools), message_id))
+
+
 def edit_message(chat_id, message_id, content):
     with connect() as db:
         db.execute('UPDATE messages SET content = ? WHERE id = ? AND chat_id = ?', (content, message_id, chat_id))

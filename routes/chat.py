@@ -371,6 +371,49 @@ def send(chat_id):
     return reply_stream(store.get_chat(chat_id, user_id), message_id, fields['backend'], fields['model'], use_web, links=True)
 
 
+COMMANDS = {'image': ('image', 'anime'), 'photo': ('image', 'realistic'), 'video': ('video', None)}
+
+
+@bp.post('/api/chats/<int:chat_id>/generate')
+def generate(chat_id):
+    """/image, /photo or /video in the composer: the message, and a reply that the finished file is
+    attached to when the GPU queue gets to it."""
+    user_id = g.user['id']
+    chat = store.get_chat(chat_id, user_id)
+    if chat is None:
+        return jsonify(error='No such chat'), 404
+    data = request.get_json(silent=True) or {}
+    command, prompt = data.get('command'), data.get('prompt')
+    if command not in COMMANDS or not isinstance(prompt, str) or not prompt.strip():
+        return jsonify(error='Write what to make after /image, /photo or /video'), 400
+    kind, model = COMMANDS[command]
+    server = settings.get()
+    try:
+        if kind == 'image':
+            params = {'prompt': prompt.strip(), 'model': model}
+            if model == 'anime':
+                params['negative_prompt'] = server['image_negative_prompt']
+            params = jobs.validate_image(params)
+        else:
+            params = jobs.validate_video({'prompt': prompt.strip(), 'negative_prompt': server['video_negative_prompt']})
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    if chat['title'] == 'New chat' and not chat['messages']:
+        store.update_chat(chat_id, user_id, {'title': ' '.join(prompt.split())[:60]})
+    parent = chat['messages'][-1]['id'] if chat['messages'] else None
+    asked = store.add_message(chat_id, parent, 'user', f'/{command} {prompt.strip()}')
+    label = {'image': 'WAI-Illustrious', 'photo': 'Z-Image-Turbo', 'video': 'Wan2.2'}[command]
+    reply = store.add_message(chat_id, asked, 'assistant', '', model=label)
+    try:
+        job_id = jobs.enqueue(user_id, kind, params, chat_id=chat_id, message_id=reply)
+    except FileNotFoundError as error:
+        store.edit_message(chat_id, reply, f"The {kind} couldn't be made: {error}")
+        return jsonify(store.get_chat(chat_id, user_id)), 201
+    store.update_message_tools(reply, [{'name': f'generate_{kind}', 'arguments': {'prompt': prompt.strip()},
+                                        'summary': f'queued {kind} job {job_id}', 'job_id': job_id}])
+    return jsonify(store.get_chat(chat_id, user_id)), 201
+
+
 @bp.post('/api/chats/<int:chat_id>/branch')
 def switch_branch(chat_id):
     """Show the branch through message_id (following its newest replies to the end)."""

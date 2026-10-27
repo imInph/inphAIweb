@@ -194,7 +194,10 @@ function slashQuery() {
 function renderSlash() {
     const query = slashQuery();
     const menu = $("slashMenu");
-    slashMatches = query === null ? [] : state.prompts.filter(p =>
+    const builtIn = [{ command: "image", title: "Make an anime-style image (WAI)", builtIn: true },
+                     { command: "photo", title: "Make a realistic image (Z-Image)", builtIn: true },
+                     { command: "video", title: "Make a short video (Wan2.2)", builtIn: true }];
+    slashMatches = query === null ? [] : [...builtIn, ...state.prompts].filter(p =>
         p.command.startsWith(query) || p.title.toLowerCase().includes(query));
     menu.hidden = !slashMatches.length;
     if (menu.hidden) return;
@@ -221,6 +224,12 @@ async function fillVariables(text) {
 
 async function usePrompt(prompt) {
     const box = $("prompt");
+    if (prompt.builtIn) {
+        box.value = `/${prompt.command} `;
+        $("slashMenu").hidden = true;
+        box.focus();
+        return;
+    }
     const rest = box.value.slice(box.selectionStart);
     box.value = (await fillVariables(prompt.content)) + rest;
     $("slashMenu").hidden = true;
