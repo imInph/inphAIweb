@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sqlite3
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / 'data'
@@ -117,9 +118,20 @@ CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state, id);''')
         add_column(db, table, 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE')
 
 
+def migrate_3(db):
+    """Message branches: each message has a parent, and a chat remembers which branch is shown."""
+    add_column(db, 'messages', 'parent_id', 'INTEGER REFERENCES messages(id) ON DELETE CASCADE')
+    add_column(db, 'chats', 'leaf_id', 'INTEGER')
+    # Until now a chat was one line of messages: each one's parent is the one before it.
+    db.execute("""UPDATE messages SET parent_id = (SELECT MAX(p.id) FROM messages p
+                  WHERE p.chat_id = messages.chat_id AND p.id < messages.id) WHERE parent_id IS NULL""")
+    db.execute('UPDATE chats SET leaf_id = (SELECT MAX(id) FROM messages WHERE chat_id = chats.id) WHERE leaf_id IS NULL')
+    db.execute('CREATE INDEX IF NOT EXISTS messages_parent ON messages(parent_id)')
+
+
 # Applied in order; PRAGMA user_version records how many have run. Append, never edit or reorder.
 # Each must be safe to run twice: executescript commits as it goes, so a crash can leave one half done.
-MIGRATIONS = [migrate_1, migrate_2]
+MIGRATIONS = [migrate_1, migrate_2, migrate_3]
 CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options')
 USER_FIELDS = ('username', 'password_hash', 'role', 'disabled')
 
@@ -157,6 +169,12 @@ def init():
 
 
 def remove_files(paths):
+    paths = list(paths)
+    if paths:
+        with connect() as db:
+            still_used = {row['path'] for row in db.execute(
+                f'SELECT path FROM attachments WHERE path IN ({", ".join("?" * len(paths))})', paths)}
+        paths = [path for path in paths if path not in still_used]
     for path in paths:
         file = UPLOADS / path
         file.unlink(missing_ok=True)
@@ -314,16 +332,100 @@ def get_chat(chat_id, user_id):
         chat = db.execute('SELECT * FROM chats WHERE id = ? AND user_id = ?', (chat_id, user_id)).fetchone()
         if chat is None:
             return None
-        messages = [{**dict(row), 'stats': json.loads(row['stats']) if row['stats'] else None, 'attachments': []}
-                    for row in db.execute('SELECT id, role, content, thinking, model, stats, created_at FROM messages '
-                                          'WHERE chat_id = ? ORDER BY id', (chat_id,))]
+        rows = db.execute('SELECT id, parent_id, role, content, thinking, model, stats, created_at FROM messages '
+                          'WHERE chat_id = ? ORDER BY id', (chat_id,)).fetchall()
+        path = branch(rows, chat['leaf_id'])
+        children = {}
+        for row in rows:
+            children.setdefault(row['parent_id'], []).append(row['id'])
+        messages = []
+        for row in path:
+            siblings = children[row['parent_id']]
+            messages.append({**dict(row), 'stats': json.loads(row['stats']) if row['stats'] else None,
+                             'attachments': [], 'siblings': siblings, 'sibling_index': siblings.index(row['id'])})
         by_id = {message['id']: message for message in messages}
         for row in db.execute('SELECT a.* FROM attachments a JOIN messages m ON m.id = a.message_id '
                               'WHERE m.chat_id = ? ORDER BY a.created_at', (chat_id,)):
-            by_id[row['message_id']]['attachments'].append(attachment_row(row))
+            if row['message_id'] in by_id:
+                by_id[row['message_id']]['attachments'].append(attachment_row(row))
         chat = dict(chat)
         chat.pop('temperature', None)
         return {**chat, 'options': json.loads(chat['options']), 'messages': messages}
+
+
+def branch(rows, leaf_id):
+    """The messages from the first one down to leaf_id, in order."""
+    by_id = {row['id']: row for row in rows}
+    path, node = [], by_id.get(leaf_id)
+    while node is not None:
+        path.append(node)
+        node = by_id.get(node['parent_id'])
+    return path[::-1]
+
+
+def get_message(chat_id, message_id):
+    """chat_id must already be checked against its owner."""
+    with connect() as db:
+        row = db.execute('SELECT * FROM messages WHERE id = ? AND chat_id = ?', (message_id, chat_id)).fetchone()
+    return dict(row) if row else None
+
+
+def path_to(chat_id, message_id):
+    """The conversation up to and including message_id (what a model sees when answering it)."""
+    with connect() as db:
+        rows = db.execute('SELECT * FROM messages WHERE chat_id = ?', (chat_id,)).fetchall()
+    return [dict(row) for row in branch(rows, message_id)]
+
+
+def newest_leaf(chat_id, message_id):
+    """Follow the newest child from message_id down to the end of that branch."""
+    with connect() as db:
+        while True:
+            child = db.execute('SELECT MAX(id) FROM messages WHERE chat_id = ? AND parent_id = ?',
+                               (chat_id, message_id)).fetchone()[0]
+            if child is None:
+                return message_id
+            message_id = child
+
+
+def set_leaf(chat_id, message_id):
+    with connect() as db:
+        db.execute('UPDATE chats SET leaf_id = ?, updated_at = ? WHERE id = ?', (message_id, time.time(), chat_id))
+
+
+def edit_message(chat_id, message_id, content):
+    with connect() as db:
+        db.execute('UPDATE messages SET content = ? WHERE id = ? AND chat_id = ?', (content, message_id, chat_id))
+
+
+def delete_message(chat_id, message_id):
+    """Delete a message and everything after it on its branches; show a neighbouring branch instead."""
+    message = get_message(chat_id, message_id)
+    if message is None:
+        return False
+    with connect() as db:
+        subtree = [row[0] for row in db.execute(
+            'WITH RECURSIVE t(id) AS (SELECT ? UNION ALL SELECT m.id FROM messages m JOIN t ON m.parent_id = t.id) '
+            'SELECT id FROM t', (message_id,))]
+        paths = [row['path'] for row in db.execute(
+            f'SELECT path FROM attachments WHERE message_id IN ({", ".join("?" * len(subtree))})', subtree)]
+        db.execute('DELETE FROM messages WHERE id = ?', (message_id,))
+        sibling = db.execute('SELECT MAX(id) FROM messages WHERE chat_id = ? AND parent_id IS ?',
+                             (chat_id, message['parent_id'])).fetchone()[0]
+    remove_files(paths)
+    target = sibling if sibling is not None else message['parent_id']
+    set_leaf(chat_id, newest_leaf(chat_id, target) if target is not None else None)
+    return True
+
+
+def copy_attachments(from_message_id, to_message_id):
+    """An edited message keeps the files of the one it replaces (the same files on disk)."""
+    with connect() as db:
+        for row in db.execute('SELECT * FROM attachments WHERE message_id = ?', (from_message_id,)).fetchall():
+            db.execute('INSERT INTO attachments (id, user_id, message_id, kind, name, mime, size, path, text, truncated, '
+                       'created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                       (uuid.uuid4().hex, row['user_id'], to_message_id, row['kind'], row['name'], row['mime'],
+                        row['size'], row['path'], row['text'], row['truncated'], time.time()))
 
 
 def update_chat(chat_id, user_id, fields, touch=False):
@@ -356,25 +458,17 @@ def delete_all_chats(user_id):
     return deleted
 
 
-def add_message(chat_id, role, content, thinking='', model=None, stats=None, attachments=()):
-    """chat_id must already be checked against its owner."""
+def add_message(chat_id, parent_id, role, content, thinking='', model=None, stats=None, attachments=()):
+    """Add a message under parent_id and show its branch. chat_id must already be checked against its owner."""
     now = time.time()
     with connect() as db:
-        cursor = db.execute('INSERT INTO messages (chat_id, role, content, thinking, model, stats, created_at) '
-                            'VALUES (?, ?, ?, ?, ?, ?, ?)', (chat_id, role, content, thinking, model,
-                                                             json.dumps(stats) if stats else None, now))
+        cursor = db.execute('INSERT INTO messages (chat_id, parent_id, role, content, thinking, model, stats, created_at) '
+                            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)', (chat_id, parent_id, role, content, thinking, model,
+                                                                json.dumps(stats) if stats else None, now))
         db.executemany('UPDATE attachments SET message_id = ? WHERE id = ? AND message_id IS NULL',
                        [(cursor.lastrowid, attachment) for attachment in attachments])
-        db.execute('UPDATE chats SET updated_at = ? WHERE id = ?', (now, chat_id))
+        db.execute('UPDATE chats SET updated_at = ?, leaf_id = ? WHERE id = ?', (now, cursor.lastrowid, chat_id))
         return cursor.lastrowid
-
-
-def drop_trailing_replies(chat_id):
-    """Remove the assistant messages after the last user message (for regenerate)."""
-    with connect() as db:
-        db.execute('DELETE FROM messages WHERE chat_id = ? AND role = ? AND id > '
-                   '(SELECT COALESCE(MAX(id), 0) FROM messages WHERE chat_id = ? AND role = ?)',
-                   (chat_id, 'assistant', chat_id, 'user'))
 
 
 # Attachments

@@ -4,7 +4,9 @@ export const state = {
     chat: null,          // the open chat with its messages, or null for a new one
     draft: { system_prompt: "", options: {} },
     models: [],
-    streaming: null,     // AbortController while a reply streams
+    live: null,          // the answer(s) streaming in now: { replyTo, streams: [...] }
+    compare: null,       // finished side-by-side answers, kept until one is picked
+    editing: null,       // id of the message being edited in place
     jobs: [],            // this user's queued, running and just-finished GPU jobs
     busy: null,          // the kind of someone else's job holding the GPU
     startErrors: { image: null, video: null },

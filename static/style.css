@@ -320,6 +320,31 @@ label > span { display: block; margin-bottom: 5px; font-size: .8rem; font-weight
 .code-block code { background: none; padding: 0; font-size: .84rem; }
 .cursor::after { content: "▍"; color: var(--accent); }
 
+/* Versions, editing in place, compare */
+@media (hover: hover) {
+    .message .meta > .btn { opacity: 0; transition: opacity .15s; }
+    .message:hover .meta > .btn, .message:focus-within .meta > .btn, .compare .meta > .btn { opacity: 1; }
+}
+.versions { display: inline-flex; align-items: center; gap: 0; margin-right: 4px; font-variant-numeric: tabular-nums; }
+.versions .btn-icon { width: 24px; height: 24px; min-width: 0; min-height: 0; }
+.message-editor { display: flex; flex-direction: column; gap: 8px; }
+.message.user .message-editor { margin-left: auto; width: min(100%, 620px); }
+.message-editor textarea { resize: none; overflow-y: hidden; min-height: 80px; }
+.compare-panel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; flex: none; }
+.compare-panel span { font-size: .82rem; font-weight: 600; color: var(--text-dim); }
+.compare-panel select { width: auto; min-width: 180px; padding: 6px 30px 6px 12px; }
+.compare-panel small { flex-basis: 100%; font-size: .76rem; color: var(--text-faint); }
+#compareButton[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.compare {
+    display: grid; grid-template-columns: repeat(var(--columns), minmax(0, 1fr)); gap: 14px;
+    max-width: 1200px; margin: 0 auto 20px;
+}
+.compare .message {
+    margin: 0; max-width: none; padding: 12px 14px; border-radius: var(--radius);
+    background: var(--glass-bg); border: 1px solid var(--glass-border); box-shadow: var(--shadow-sm);
+}
+.compare-model { font-size: .76rem; font-weight: 650; color: var(--text-faint); margin-bottom: 6px; }
+
 /* Attachments: chips in the composer, and on sent messages */
 .attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 0; }
 .file-chip {
@@ -565,6 +590,7 @@ body.login-page { overflow: auto; display: grid; place-items: center; min-height
 
     .chat-bar select.pill { flex: 1; min-width: 0; }
     .settings-card { max-height: 42dvh; }
+    .compare { grid-template-columns: 1fr; }
     .backend-note { flex-basis: 100%; }
     .message.user .bubble { max-width: 92%; }
     .chat-list li .btn { visibility: visible; }

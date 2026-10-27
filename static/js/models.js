@@ -1,6 +1,6 @@
 import { $, api, storageGet, storageSet } from "./util.js";
 import { state } from "./state.js";
-import { renderMessages } from "./chat.js";
+import { fillCompareSelects, renderMessages } from "./chat.js";
 import { paintChatOptions } from "./options.js";
 
 // Models
@@ -27,6 +27,7 @@ export async function loadModels() {
         $("backendNote").hidden = !errors.length;
         $("backendNote").textContent = errors.join(" · ");
         pickModel(state.chat ? modelKey(state.chat.backend, state.chat.model) : previous);
+        fillCompareSelects();
     } catch (error) {
         select.replaceChildren(new Option("Could not load models", ""));
         $("backendNote").hidden = false;

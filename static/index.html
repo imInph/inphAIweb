@@ -91,7 +91,16 @@
                         <button class="btn btn-icon" id="settingsButton" type="button" title="Chat settings" aria-label="Chat settings" aria-expanded="false">
                             <svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h9M17.5 6.5H20M4 12h3M11.5 12H20M4 17.5h11M19.5 17.5h.5"/><circle cx="15.5" cy="6.5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17.5" cy="17.5" r="2"/></svg>
                         </button>
+                        <button class="btn btn-icon" id="compareButton" type="button" title="Compare models" aria-label="Compare models" aria-pressed="false">
+                            <svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="7" height="15" rx="2"/><rect x="13.5" y="4.5" width="7" height="15" rx="2"/></svg>
+                        </button>
                         <span class="backend-note" id="backendNote" hidden></span>
+                    </div>
+                    <div class="card compare-panel" id="comparePanel" hidden>
+                        <span>Also ask</span>
+                        <select aria-label="Second model"></select>
+                        <select aria-label="Third model"></select>
+                        <small>Every model answers your next messages side by side; pick one to carry on with.</small>
                     </div>
                     <div class="card settings-card" id="settings" hidden>
                         <label><span>System prompt</span>
