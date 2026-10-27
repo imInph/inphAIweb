@@ -106,6 +106,7 @@ export async function loadSettingsPage() {
         $("serverDisk").textContent = `The whole server uses ${formatBytes(disk.database)} for the database, `
             + `${formatBytes(disk.files)} for chat files and ${formatBytes(disk.images + disk.videos)} for images and videos.`;
         loadUsers();
+        paintRestore((await api("/api/admin/restore")).pending);
     }
 }
 
@@ -283,4 +284,47 @@ $("addUserForm").addEventListener("submit", async event => {
     } catch (error) {
         showSaved("users", error.message, true);
     }
+});
+
+// Backup and restore (admin)
+
+$("backupMedia").addEventListener("change", () => {
+    $("backupDownload").href = $("backupMedia").checked ? "/api/admin/backup?media=1" : "/api/admin/backup";
+});
+
+function paintRestore(pending, found) {
+    $("restoreCancel").hidden = !pending;
+    if (!pending) return;
+    const what = found ? `It has ${found.users} account${found.users === 1 ? "" : "s"}, ${found.files} chat file${found.files === 1 ? "" : "s"}, `
+        + `${found.knowledge_files} knowledge file${found.knowledge_files === 1 ? "" : "s"} and `
+        + (found.media ? `${found.media_files} image and video files.` : "no images or videos (yours stay as they are).") + " " : "";
+    $("restoreNote").textContent = `A backup is ready to restore. ${what}Restart inphAI to finish: it replaces everything now on `
+        + "the server, which is kept in data/before-restore-… just in case.";
+}
+
+$("restoreButton").addEventListener("click", () => $("restoreFile").click());
+$("restoreFile").addEventListener("change", async () => {
+    const file = $("restoreFile").files[0];
+    $("restoreFile").value = "";
+    if (!file) return;
+    if (!confirm("Restoring replaces every account, chat and file on this server with the backup's (after a restart). Go on?")) return;
+    const form = new FormData();
+    form.append("file", file);
+    $("restoreNote").textContent = "Uploading and checking the backup...";
+    try {
+        const response = await request("/api/admin/restore", { method: "POST", body: form });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `Restore failed (${response.status})`);
+        paintRestore(true, result);
+    } catch (error) {
+        $("restoreNote").textContent = "";
+        showSaved("backup", error.message, true);
+    }
+});
+
+$("restoreCancel").addEventListener("click", async () => {
+    await api("/api/admin/restore", { method: "DELETE" });
+    $("restoreNote").textContent = "";
+    paintRestore(false);
+    showSaved("backup", "Restore cancelled");
 });

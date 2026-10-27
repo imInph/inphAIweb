@@ -16,7 +16,7 @@ USERNAME = re.compile(r'^[\w.\-]{2,32}$')
 # scrypt with these costs takes ~50 ms and 16 MB: slow to guess, fast enough to log in.
 SCRYPT = {'n': 2 ** 14, 'r': 8, 'p': 1}
 # Pages and endpoints that work without signing in. Everything else needs a session.
-OPEN_PATHS = {'/login', '/api/auth/status', '/api/auth/login', '/api/auth/setup'}
+OPEN_PATHS = {'/login', '/sw.js', '/api/auth/status', '/api/auth/login', '/api/auth/setup'}
 # A cross-site form can't set a custom header, so requiring one stops CSRF.
 CSRF_HEADER = 'X-Requested-With'
 FAILED_LIMIT, FAILED_WINDOW = 8, 10 * 60

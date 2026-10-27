@@ -1,0 +1,21 @@
+{
+    "name": "inphAI",
+    "short_name": "inphAI",
+    "description": "Chat with LM Studio and Ollama, and make images and videos, on your own server.",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#f4f6fa",
+    "theme_color": "#f4f6fa",
+    "icons": [
+        { "src": "/static/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+        { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+        { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+        { "src": "/static/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    ],
+    "shortcuts": [
+        { "name": "New chat", "url": "/#chat" },
+        { "name": "Images", "url": "/#images" },
+        { "name": "Videos", "url": "/#videos" }
+    ]
+}

@@ -19,7 +19,7 @@ export PATH="$HOME/.local/bin:$PATH"
 Then set up the parts you want:
 
 ```sh
-bash scripts/setup.sh app     # the site itself (just Flask)
+bash scripts/setup.sh app     # the site itself (Flask, pypdf, numpy)
 bash scripts/setup.sh image   # ROCm PyTorch + image models (about 38 GB download)
 bash scripts/setup.sh video   # ROCm PyTorch + Wan2.2 (downloads tens of GB on the first video)
 bash scripts/setup.sh voice   # Whisper for the microphone (CPU only)
@@ -121,7 +121,7 @@ built-in tools exist: nothing a user writes runs on the server.
 
 ## HTTPS (needed for the microphone from other devices)
 
-Browsers only allow the microphone (and installing the site as an app) on HTTPS, or at
+Browsers only allow the microphone, installing the site as an app and notifications on HTTPS, or at
 `localhost` on the server itself. To use them from your phone, give the site a certificate: put
 `cert.pem` and `key.pem` in `data/certs/` (or point `INPHAI_CERT` and `INPHAI_KEY` at them) and
 `bash start.sh` serves HTTPS on the same port.
@@ -174,11 +174,47 @@ bash start.sh
 Open http://localhost:5002 (or the server's address from another device on the network). Set
 `PORT` to use another port.
 
+## Start on boot
+
+`scripts/inphai.service` is a systemd unit. Change `YOUR_USER` (three places), then:
+
+```sh
+sudo cp scripts/inphai.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now inphai
+journalctl -u inphai -f          # the log
+sudo systemctl restart inphai    # after an update, or to finish a restore
+```
+
+Put `PORT`, `SEARXNG_URL` and the like on `Environment=` lines in the unit.
+
+## Install as an app
+
+Over HTTPS (or at `localhost`), the browser offers to install inphAI: "Add to Home Screen" on a
+phone, the install button in the address bar on a computer. The app keeps only its own files
+(page, styles, scripts, icons) so it opens fast. Chats, images and videos always come from the
+server, so it still needs the server to be reachable.
+
+When you queue an image or video, the browser asks once whether inphAI may send notifications.
+Allow it and you get one when the job is done (or fails) while the page is in the background;
+tapping it opens the chat or gallery it belongs to.
+
+## Backup and restore
+
+**Settings → Backup** (admins): **Download a backup** gives one .zip with the database (every
+account, chat, setting, prompt and memory), uploaded files and knowledge documents. Tick
+**Include images and videos** to add `data/outputs/` too (it can be big).
+
+**Restore a backup** uploads such a .zip, checks it, and sets it aside. Restart inphAI to finish
+(`sudo systemctl restart inphai`, or stop and start `start.sh`). What was there before is moved
+to `data/before-restore-<date>/`, not deleted; delete that folder yourself once you're happy. A
+backup without images and videos leaves the current ones where they are.
+
 ## Settings
 
 Everyone has their account (password), chat defaults, appearance, prompts, personas, memories
 and their data (export, import, delete). Admins also see the server's connections, generation
-defaults and the users. Your own settings follow you to every device.
+defaults, the users and backups. Your own settings follow you to every device.
 
 ## Notes
 

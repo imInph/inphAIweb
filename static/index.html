@@ -17,6 +17,14 @@
                 } catch (e) { /* storage blocked: stay light */ }
             })();
         </script>
+        <link rel="manifest" href="/static/manifest.webmanifest">
+        <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+        <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
+        <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+        <meta name="apple-mobile-web-app-title" content="inphAI">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="default">
         <link rel="stylesheet" href="/static/style.css">
         <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
         <link rel="stylesheet" href="/static/vendor/highlight/github.css" id="codeTheme">
@@ -541,6 +549,19 @@
                                     <option value="large-v3">large-v3 · most accurate, slow on a CPU</option>
                                 </select>
                             </label>
+                        </div>
+
+                        <div class="card admin-only" hidden>
+                            <div class="card-head"><h3>Backup</h3><span class="tag">Admin</span><small class="saved" data-saved="backup"></small></div>
+                            <p class="card-note">Everything in one .zip: the database (every account and chat), uploaded files and knowledge documents. Images and videos are optional, since they can be large.</p>
+                            <label class="check-row"><input type="checkbox" id="backupMedia"> <span>Include images and videos</span></label>
+                            <div class="row-buttons">
+                                <a class="btn" id="backupDownload" href="/api/admin/backup" download>Download a backup</a>
+                                <button class="btn" type="button" id="restoreButton">Restore a backup</button>
+                                <input type="file" id="restoreFile" accept=".zip,application/zip" hidden>
+                            </div>
+                            <p class="card-note" id="restoreNote"></p>
+                            <button class="btn btn-sm" type="button" id="restoreCancel" hidden>Cancel the restore</button>
                         </div>
 
                         <div class="card admin-only users-card" hidden>

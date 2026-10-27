@@ -1,0 +1,26 @@
+# Starts inphAI on boot and restarts it if it stops.
+# Edit User and the two paths, then:
+#   sudo cp scripts/inphai.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now inphai
+# Logs: journalctl -u inphai -f    Restart (e.g. to finish a restore): sudo systemctl restart inphai
+[Unit]
+Description=inphAI (chat, images and videos)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/inphAIweb
+ExecStart=/usr/bin/env bash /home/YOUR_USER/inphAIweb/start.sh
+Environment=PYTHONUNBUFFERED=1
+# Environment=PORT=5002
+# Environment=SEARXNG_URL=http://localhost:8080
+Restart=on-failure
+RestartSec=5
+# A video job's subprocess belongs to the service: stopping it stops the job too.
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

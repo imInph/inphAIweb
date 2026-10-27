@@ -75,6 +75,31 @@ export function generationSettings(kind) {
              fps: Number($("videoFps").value), seed: seedFrom($("videoSeed")) };
 }
 
+// A browser notification when a job ends while the page is in the background.
+
+export function askToNotify() {
+    // Asked on the first job queued, from inside the click (browsers require a gesture).
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+}
+
+async function notify(job) {
+    if (!document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+    const what = job.kind === "image" ? "image" : "video";
+    const title = job.state === "done" ? `Your ${what} is ready` : `The ${what} couldn't be made`;
+    const url = job.chat_id ? `/#chat/${job.chat_id}` : `/#${job.kind}s`;
+    const options = { body: job.state === "done" ? job.settings.prompt : job.error, tag: `job-${job.id}`,
+                      icon: "/static/icons/icon-192.png", data: { url } };
+    try {
+        // Android only allows notifications through the service worker.
+        const registration = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+        if (registration) return await registration.showNotification(title, options);
+        const shown = new Notification(title, options);
+        shown.onclick = () => { window.focus(); location.hash = new URL(url, location.href).hash; shown.close(); };
+    } catch (error) {
+        console.log("Could not show a notification:", error);
+    }
+}
+
 export async function generate(kind) {
     const settings = generationSettings(kind);
     if (!settings.prompt) {
@@ -82,6 +107,7 @@ export async function generate(kind) {
         return;
     }
     state.startErrors[kind] = null;
+    askToNotify();
     try {
         const job = await api(kind === "image" ? "/api/images" : "/api/videos", { method: "POST", body: settings });
         state.jobs.push(job);
@@ -188,6 +214,9 @@ export async function pollJob() {
         renderJob();
         // A job that just finished puts its file in the gallery (and in the chat that asked for it).
         const finished = result.jobs.filter(job => job.state === "done" && before.get(job.id) !== "done");
+        for (const job of result.jobs) {
+            if (before.has(job.id) && active({ state: before.get(job.id) }) && (job.state === "done" || job.state === "error")) notify(job);
+        }
         for (const kind of new Set(finished.map(job => job.kind))) loadGallery(kind);
         if (state.chat && !state.live && result.jobs.some(job => job.chat_id === state.chat.id)) {
             // A chat waiting on a job: show its progress, and its file once it's done.

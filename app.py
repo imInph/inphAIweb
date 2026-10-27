@@ -1,17 +1,23 @@
 """inphAI: chat (LM Studio, Ollama), images and videos on one page. python app.py (port 5002)."""
+import hashlib
+import mimetypes
 import os
-from flask import Flask, jsonify
+from pathlib import Path
+from flask import Flask, Response, jsonify
 from werkzeug.exceptions import HTTPException
 import auth
+import backup
 import jobs
 import knowledge
 import store
 import uploads
 from routes import account, catalog, chat, collections, config, library, media, speech
 
+mimetypes.add_type('application/manifest+json', '.webmanifest')
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = uploads.MAX_BYTES + 1024 * 1024
 PORT = int(os.environ.get('PORT', '5002'))
+backup.apply_pending()
 store.init()
 jobs.start_worker()
 knowledge.start_worker()
@@ -28,6 +34,23 @@ def http_error(error):
 @app.get('/')
 def index():
     return app.send_static_file('index.html')
+
+
+def static_version():
+    # Changes whenever a file under static/ does, so the service worker drops its old copies.
+    digest = hashlib.sha256()
+    for path in sorted(Path(app.static_folder).rglob('*')):
+        if path.is_file():
+            info = path.stat()
+            digest.update(f'{path.relative_to(app.static_folder)}:{info.st_size}:{info.st_mtime_ns}'.encode())
+    return digest.hexdigest()[:12]
+
+
+@app.get('/sw.js')
+def service_worker():
+    # Served from the root so it can look after every page; static/sw.js is its source.
+    source = Path(app.static_folder, 'sw.js').read_text().replace('__VERSION__', static_version())
+    return Response(source, mimetype='text/javascript', headers={'Cache-Control': 'no-cache'})
 
 
 def certificate():

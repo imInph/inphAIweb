@@ -1,6 +1,6 @@
 import { autoRead, readAloudButton } from "./voice.js";
 import { modelCapabilities } from "./options.js";
-import { jobMessage, pollJob, progressBar } from "./media.js";
+import { askToNotify, jobMessage, pollJob, progressBar } from "./media.js";
 import { renderChatKnowledge, sourcesElement } from "./knowledge.js";
 import { $, api, autoGrow, button, copyText, icon, iconButton, request, storageGet, storageSet } from "./util.js";
 import { state } from "./state.js";
@@ -254,6 +254,7 @@ function imageOf(message) {
 }
 
 export async function generateFromCommand(command, prompt) {
+    askToNotify();
     const picked = selectedModel();
     if (!state.chat) {
         state.chat = await api("/api/chats", {
