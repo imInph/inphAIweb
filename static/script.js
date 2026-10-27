@@ -9,6 +9,13 @@ const state = {
     job: null,
     jobTimer: null,
 };
+const ICONS = {
+    send: '<path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/>',
+    stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
+    edit: '<path d="M12 20.5h8"/><path d="M16.2 3.8a2 2 0 0 1 2.9 2.9L7.5 18.3l-3.8 1 1-3.8z"/>',
+    trash: '<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5l1-12.5"/>',
+};
+const TITLES = { chat: "Chat", images: "Images", videos: "Videos" };
 const STAGES = {
     starting: "Starting...",
     loading_model: "Loading model...",
@@ -26,6 +33,24 @@ async function api(path, options = {}) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
     return result;
+}
+
+function icon(name, size = 18) {
+    return `<svg class="ico" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+}
+
+function button(label, onClick, className = "btn btn-ghost btn-sm") {
+    const element = Object.assign(document.createElement("button"), { type: "button", className, textContent: label });
+    element.addEventListener("click", onClick);
+    return element;
+}
+
+function iconButton(name, label, onClick) {
+    const element = button("", onClick, "btn btn-ghost btn-sm btn-icon");
+    element.innerHTML = icon(name, 16);
+    element.title = label;
+    element.setAttribute("aria-label", label);
+    return element;
 }
 
 function autoGrow(textarea) {
@@ -76,9 +101,9 @@ function showView() {
     const [view, id] = location.hash.slice(1).split("/");
     state.view = ["chat", "images", "videos"].includes(view) ? view : "chat";
     for (const name of ["chat", "images", "videos"]) $(`view-${name}`).hidden = name !== state.view;
-    document.querySelectorAll(".tabs a").forEach(a => a.classList.toggle("active", a.dataset.view === state.view));
-    $("chatSide").hidden = state.view !== "chat";
-    document.title = { chat: "inphAI", images: "Images · inphAI", videos: "Videos · inphAI" }[state.view];
+    document.querySelectorAll(".nav-item").forEach(a => a.classList.toggle("active", a.dataset.view === state.view));
+    $("pageTitle").textContent = TITLES[state.view];
+    document.title = state.view === "chat" ? "inphAI" : `${TITLES[state.view]} · inphAI`;
     closeDrawer();
     if (state.view === "chat") {
         const chatId = Number(id) || null;
@@ -89,13 +114,32 @@ function showView() {
 }
 
 function closeDrawer() {
-    document.body.classList.remove("drawerOpen");
+    document.body.classList.remove("drawer-open");
     $("backdrop").hidden = true;
 }
 
 $("menuButton").addEventListener("click", () => {
-    document.body.classList.add("drawerOpen");
+    document.body.classList.add("drawer-open");
     $("backdrop").hidden = false;
+});
+
+// Topbar: greeting, clock, theme
+
+function greetingFor(hour) {
+    return hour < 5 ? "Late night" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+}
+
+function tick() {
+    const now = new Date();
+    $("greeting").textContent = greetingFor(now.getHours());
+    $("clock").textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+
+$("themeButton").addEventListener("click", () => {
+    const dark = document.documentElement.getAttribute("data-theme") !== "dark";
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "#0b0d12" : "#f4f6fa");
+    storageSet("inphai.theme", dark ? "dark" : "light");
 });
 $("backdrop").addEventListener("click", closeDrawer);
 window.addEventListener("hashchange", showView);
@@ -167,11 +211,8 @@ function renderChatList() {
         item.classList.toggle("active", Boolean(state.chat && state.chat.id === chat.id));
         const link = Object.assign(document.createElement("a"), { href: `#chat/${chat.id}`, textContent: chat.title });
         link.title = chat.title;
-        const rename = Object.assign(document.createElement("button"), { type: "button", textContent: "✎", title: "Rename" });
-        rename.addEventListener("click", () => renameChat(chat));
-        const remove = Object.assign(document.createElement("button"), { type: "button", textContent: "✕", title: "Delete" });
-        remove.addEventListener("click", () => deleteChat(chat));
-        item.append(link, rename, remove);
+        item.append(link, iconButton("edit", "Rename", () => renameChat(chat)),
+            iconButton("trash", "Delete", () => deleteChat(chat)));
         return item;
     }));
 }
@@ -253,14 +294,9 @@ function messageElement(message, options = {}) {
     if (!options.streaming) {
         const meta = Object.assign(document.createElement("div"), { className: "meta" });
         if (message.role === "assistant" && message.model) meta.append(Object.assign(document.createElement("span"), { textContent: message.model }));
-        const copy = Object.assign(document.createElement("button"), { type: "button", textContent: "Copy" });
-        copy.addEventListener("click", () => copyText(splitThinking(message).content || message.content, copy));
+        const copy = button("Copy", () => copyText(splitThinking(message).content || message.content, copy));
         meta.append(copy);
-        if (options.last && message.role === "assistant") {
-            const again = Object.assign(document.createElement("button"), { type: "button", textContent: "Regenerate" });
-            again.addEventListener("click", () => sendMessage(null));
-            meta.append(again);
-        }
+        if (options.last && message.role === "assistant") meta.append(button("Regenerate", () => sendMessage(null)));
         box.append(meta);
     }
     return box;
@@ -285,8 +321,8 @@ function renderMessages(live) {
 }
 
 $("messages").addEventListener("click", event => {
-    const button = event.target.closest(".copyCode");
-    if (button) copyText(button.closest(".codeBlock").querySelector("code").textContent, button);
+    const copy = event.target.closest(".copy-code");
+    if (copy) copyText(copy.closest(".code-block").querySelector("code").textContent, copy);
 });
 
 async function sendMessage(content) {
@@ -362,7 +398,7 @@ async function sendMessage(content) {
     renderMessages();
     if (live.error) {
         const error = Object.assign(document.createElement("div"), { className: "message" });
-        error.append(Object.assign(document.createElement("p"), { className: "error", textContent: live.error }));
+        error.append(Object.assign(document.createElement("div"), { className: "error", textContent: live.error }));
         $("messages").append(error);
         $("messages").scrollTop = $("messages").scrollHeight;
     }
@@ -370,9 +406,11 @@ async function sendMessage(content) {
 }
 
 function setSending(sending) {
-    const button = $("sendButton");
-    button.textContent = sending ? "Stop" : "Send";
-    button.classList.toggle("stop", sending);
+    const send = $("sendButton");
+    send.innerHTML = icon(sending ? "stop" : "send", 20);
+    send.title = sending ? "Stop" : "Send";
+    send.setAttribute("aria-label", send.title);
+    send.classList.toggle("stop", sending);
 }
 
 $("composer").addEventListener("submit", event => {
@@ -423,14 +461,14 @@ function updateImageSteps() {
     const choices = anime ? [20, 28, 30, 40, 50] : [4, 6, 9, 12];
     const recommended = anime ? 28 : 9;
     $("imageSteps").replaceChildren(...choices.map(value => {
-        const text = value === recommended ? `${value} — Default` : String(value);
+        const text = value === recommended ? `${value} · default` : String(value);
         return new Option(text, String(value), value === recommended, value === recommended);
     }));
 }
 
 function updateVideoLength() {
     const seconds = Number($("videoFrames").value) / Number($("videoFps").value);
-    $("videoLength").textContent = `About ${seconds.toFixed(1)} seconds of video. Videos take a long time; you can leave this page while it runs.`;
+    $("videoLength").textContent = `About ${seconds.toFixed(1)} s of video. It takes a while, and keeps going if you leave the page.`;
 }
 
 $("imageModel").addEventListener("change", updateImageSteps);
@@ -468,7 +506,7 @@ async function generate(kind) {
     }
 }
 
-document.querySelectorAll(".generateButton").forEach(button =>
+document.querySelectorAll(".generate-button").forEach(button =>
     button.addEventListener("click", () => generate(button.dataset.kind)));
 
 function jobMessage(job) {
@@ -489,9 +527,9 @@ function renderJob() {
     const running = job && job.state === "running";
     for (const kind of ["image", "video"]) {
         const box = $(`${kind}Job`);
-        const button = $(`${kind}Generate`);
-        button.disabled = running;
-        button.textContent = running && job.kind === kind ? "Generating..." : "Generate";
+        const generateButton = $(`${kind}Generate`);
+        generateButton.disabled = running;
+        generateButton.textContent = running && job.kind === kind ? "Generating..." : "Generate";
         if (!job || job.kind !== kind || job.state === "idle") {
             box.hidden = !running;
             if (running) box.replaceChildren(Object.assign(document.createElement("p"), {
@@ -503,13 +541,9 @@ function renderJob() {
         if (job.state === "error") message.className = "error";
         const parts = [message];
         if (running) {
-            const bar = Object.assign(document.createElement("div"), { className: "bar" });
-            const fill = document.createElement("div");
-            fill.style.width = job.total_steps ? `${Math.round(100 * job.completed_steps / job.total_steps)}%` : "0";
-            bar.append(fill);
-            const cancel = Object.assign(document.createElement("button"), { type: "button", className: "plainButton", textContent: "Cancel" });
-            cancel.addEventListener("click", () => api("/api/job/cancel", { method: "POST" }).then(pollJob));
-            parts.push(bar, cancel);
+            const row = Object.assign(document.createElement("div"), { className: "row" });
+            row.append(progressBar(job), button("Cancel", () => api("/api/job/cancel", { method: "POST" }).then(pollJob), "btn btn-sm"));
+            parts.push(row);
         }
         if (job.output && job.output.length && (running || job.state === "error")) {
             const details = document.createElement("details");
@@ -523,11 +557,20 @@ function renderJob() {
     const pill = $("jobPill");
     pill.hidden = !running;
     if (running) {
-        pill.replaceChildren(Object.assign(document.createElement("a"), {
+        const link = Object.assign(document.createElement("a"), {
             href: job.kind === "image" ? "#images" : "#videos",
-            textContent: `${job.kind === "image" ? "Image" : "Video"}: ${jobMessage(job)}`,
-        }));
+            textContent: `${job.kind === "image" ? "Image" : "Video"} · ${jobMessage(job)}`,
+        });
+        pill.replaceChildren(link, progressBar(job));
     }
+}
+
+function progressBar(job) {
+    const bar = Object.assign(document.createElement("div"), { className: "bar" });
+    const fill = document.createElement("div");
+    fill.style.width = job.total_steps ? `${Math.round(100 * job.completed_steps / job.total_steps)}%` : "0";
+    bar.append(fill);
+    return bar;
 }
 
 async function pollJob() {
@@ -562,7 +605,7 @@ async function loadGallery(kind) {
         return;
     }
     gallery.replaceChildren(...items.map(item => {
-        const card = Object.assign(document.createElement("div"), { className: "card" });
+        const card = Object.assign(document.createElement("div"), { className: "card media-card" });
         let media;
         if (kind === "image") {
             media = Object.assign(document.createElement("img"), { src: item.url, alt: item.prompt, loading: "lazy" });
@@ -574,23 +617,19 @@ async function loadGallery(kind) {
         }
         const caption = Object.assign(document.createElement("div"), { className: "caption" });
         caption.append(Object.assign(document.createElement("p"), { textContent: item.prompt, title: item.prompt }));
-        const meta = Object.assign(document.createElement("div"), { className: "meta" });
         const s = item.settings;
         const details = kind === "image"
             ? `${s.model} · ${s.width}×${s.height} · ${s.steps} steps · seed ${s.seed}`
             : `${s.width}×${s.height} · ${s.frames} frames · ${s.fps} fps · seed ${s.seed}`;
-        meta.append(Object.assign(document.createElement("span"), { textContent: `${details} · ${timeAgo(item.created_at)}` }));
-        const reuse = Object.assign(document.createElement("button"), { type: "button", textContent: "Reuse" });
-        reuse.addEventListener("click", () => reuseSettings(kind, s));
-        const download = Object.assign(document.createElement("a"), { href: item.url, download: "", textContent: "Download" });
-        const remove = Object.assign(document.createElement("button"), { type: "button", textContent: "Delete" });
-        remove.addEventListener("click", async () => {
+        caption.append(Object.assign(document.createElement("div"), { className: "details", textContent: `${details} · ${timeAgo(item.created_at)}` }));
+        const actions = Object.assign(document.createElement("div"), { className: "actions" });
+        const download = Object.assign(document.createElement("a"), { className: "btn btn-ghost btn-sm", href: item.url, download: "", textContent: "Download" });
+        actions.append(button("Reuse", () => reuseSettings(kind, s)), download, button("Delete", async () => {
             if (!confirm(`Delete this ${kind}?`)) return;
             await api(`/api/media/${item.id}`, { method: "DELETE" }).catch(error => alert(error.message));
             loadGallery(kind);
-        });
-        meta.append(reuse, download, remove);
-        caption.append(meta);
+        }));
+        caption.append(actions);
         card.append(media, caption);
         return card;
     }));
@@ -621,6 +660,7 @@ function reuseSettings(kind, s) {
         updateVideoLength();
     }
     $(`view-${kind}s`).scrollTop = 0;
+    prompt.focus();
 }
 
 // Start
@@ -630,6 +670,9 @@ for (const id of ["prompt", "imagePrompt", "videoPrompt"]) {
 }
 updateImageSteps();
 updateVideoLength();
+setSending(false);
+tick();
+setInterval(tick, 1000);
 showView();
 loadModels();
 loadChats();

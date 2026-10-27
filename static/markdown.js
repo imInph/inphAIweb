@@ -51,8 +51,8 @@ function renderMarkdown(source) {
             // While a reply streams, the closing fence may not have arrived yet.
             while (i < lines.length && !lines[i].trim().startsWith(fence[1])) code.push(lines[i++]);
             i++;
-            out.push(`<div class="codeBlock"><div class="codeHead"><span>${escapeHtml(fence[2] || "code")}</span>`
-                + `<button type="button" class="copyCode">Copy</button></div>`
+            out.push(`<div class="code-block"><div class="code-head"><span>${escapeHtml(fence[2] || "code")}</span>`
+                + `<button type="button" class="btn btn-ghost btn-sm copy-code">Copy</button></div>`
                 + `<pre><code>${escapeHtml(code.join("\n"))}</code></pre></div>`);
             continue;
         }

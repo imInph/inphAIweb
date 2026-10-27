@@ -1,167 +1,215 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
         <title>inphAI</title>
+        <meta name="color-scheme" content="dark light">
+        <meta name="theme-color" content="#f4f6fa">
+        <script>
+            // Theme before first paint, so a reload never flashes the wrong look.
+            (function () {
+                try {
+                    if (localStorage.getItem("inphai.theme") === "dark") {
+                        document.documentElement.setAttribute("data-theme", "dark");
+                        document.querySelector('meta[name="theme-color"]').setAttribute("content", "#0b0d12");
+                    }
+                } catch (e) { /* storage blocked: stay light */ }
+            })();
+        </script>
         <link rel="stylesheet" href="/static/style.css">
         <script src="/static/markdown.js" defer></script>
         <script src="/static/script.js" defer></script>
     </head>
     <body>
-        <aside class="sidebar" id="sidebar">
-            <h1>inphAI</h1>
-            <nav class="tabs">
-                <a href="#chat" data-view="chat">Chat</a>
-                <a href="#images" data-view="images">Images</a>
-                <a href="#videos" data-view="videos">Videos</a>
-            </nav>
-            <div class="chatSide" id="chatSide">
-                <button id="newChat" type="button">New chat</button>
-                <ul class="chatList" id="chatList"></ul>
-            </div>
-            <div class="jobPill" id="jobPill" hidden></div>
-        </aside>
-        <div class="backdrop" id="backdrop" hidden></div>
+        <div class="app">
+            <aside class="sidebar" id="sidebar" aria-label="Main">
+                <div class="brand"><span class="logo">inphAI</span></div>
+                <nav class="nav">
+                    <a class="nav-item" href="#chat" data-view="chat">
+                        <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-4.5 3.5v-3.5H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z"/><path d="M7.5 9.5h9M7.5 13h5.5"/></svg>
+                        Chat
+                    </a>
+                    <a class="nav-item" href="#images" data-view="images">
+                        <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="9.5" r="1.6"/><path d="M4 17.5l5-4.5 3.5 3 3-2.5 4.5 4"/></svg>
+                        Images
+                    </a>
+                    <a class="nav-item" href="#videos" data-view="videos">
+                        <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10.5l5-3v9l-5-3z"/></svg>
+                        Videos
+                    </a>
+                </nav>
+                <div class="chat-side" id="chatSide">
+                    <div class="side-head">
+                        <span>Chats</span>
+                        <button class="btn btn-ghost btn-sm btn-icon" id="newChat" type="button" title="New chat" aria-label="New chat">
+                            <svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                        </button>
+                    </div>
+                    <ul class="chat-list" id="chatList"></ul>
+                </div>
+                <div class="sidebar-foot">
+                    <div class="job-pill" id="jobPill" hidden></div>
+                </div>
+            </aside>
+            <div class="nav-backdrop" id="backdrop" hidden></div>
 
-        <main class="main">
-            <button class="menuButton plainButton" id="menuButton" type="button" aria-label="Menu">☰</button>
-
-            <!-- Chat -->
-            <section class="view chatView" id="view-chat">
+            <main class="main">
                 <header class="topbar">
-                    <select id="model" aria-label="Model"></select>
-                    <button class="plainButton" id="refreshModels" type="button" title="Reload the model list">↻</button>
-                    <button class="plainButton" id="settingsButton" type="button" aria-expanded="false">Chat settings</button>
+                    <div class="topbar-left">
+                        <button class="btn btn-ghost btn-icon hamburger" id="menuButton" type="button" aria-label="Open menu">
+                            <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+                        </button>
+                        <div class="title-block">
+                            <div class="greeting" id="greeting">&nbsp;</div>
+                            <h1 class="page-title" id="pageTitle">Chat</h1>
+                        </div>
+                    </div>
+                    <div class="topbar-right">
+                        <div class="clock" id="clock" aria-label="Current time"></div>
+                        <button class="btn btn-icon" id="themeButton" type="button" title="Toggle theme" aria-label="Toggle theme">
+                            <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>
+                        </button>
+                    </div>
                 </header>
-                <p class="note" id="backendNote" hidden></p>
-                <div class="settings" id="settings" hidden>
-                    <label for="systemPrompt">System prompt</label>
-                    <textarea id="systemPrompt" rows="3" placeholder="Optional, saved with this chat"></textarea>
-                    <div class="row">
-                        <label for="temperature">Temperature</label>
-                        <select id="temperature">
-                            <option value="">Model default</option>
-                            <option value="0">0 — Precise</option>
-                            <option value="0.3">0.3</option>
-                            <option value="0.7">0.7</option>
-                            <option value="1">1</option>
-                            <option value="1.3">1.3 — Creative</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="messages" id="messages"></div>
-                <form class="composer" id="composer">
-                    <textarea class="promptInput" id="prompt" aria-label="Message" placeholder="Send a message..." rows="1"></textarea>
-                    <button id="sendButton" type="submit">Send</button>
-                </form>
-            </section>
 
-            <!-- Images -->
-            <section class="view genView" id="view-images" hidden>
-                <h2>Image Generation</h2>
-                <textarea class="promptInput" id="imagePrompt" aria-label="Image prompt" placeholder="Enter your prompt..." rows="1" maxlength="4000"></textarea>
-                <div class="mainbox">
-                    <div class="innerbox">
-                        <label for="imageModel">Model:</label>
-                        <select id="imageModel">
-                            <option value="anime" selected>Anime — WAI</option>
-                            <option value="realistic">Realistic — Z-Image</option>
-                        </select>
+                <!-- Chat -->
+                <section class="view chat-view" id="view-chat" aria-label="Chat">
+                    <div class="chat-bar">
+                        <select class="pill" id="model" aria-label="Model"></select>
+                        <button class="btn btn-icon" id="refreshModels" type="button" title="Reload the model list" aria-label="Reload the model list">
+                            <svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/></svg>
+                        </button>
+                        <button class="btn btn-icon" id="settingsButton" type="button" title="Chat settings" aria-label="Chat settings" aria-expanded="false">
+                            <svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h9M17.5 6.5H20M4 12h3M11.5 12H20M4 17.5h11M19.5 17.5h.5"/><circle cx="15.5" cy="6.5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17.5" cy="17.5" r="2"/></svg>
+                        </button>
+                        <span class="backend-note" id="backendNote" hidden></span>
                     </div>
-                    <div class="innerbox">
-                        <label for="imageResolution">Resolution:</label>
-                        <select id="imageResolution">
-                            <option value="512x512">512 × 512 — Quick test</option>
-                            <option value="768x768">768 × 768</option>
-                            <option value="1024x1024" selected>1024 × 1024 — Default</option>
-                            <option value="832x1216">832 × 1216 — Portrait</option>
-                            <option value="1216x832">1216 × 832 — Landscape</option>
-                        </select>
+                    <div class="card settings-card" id="settings" hidden>
+                        <label><span>System prompt</span>
+                            <textarea id="systemPrompt" rows="3" placeholder="Optional, saved with this chat"></textarea>
+                        </label>
+                        <label class="inline"><span>Temperature</span>
+                            <select id="temperature">
+                                <option value="">Model default</option>
+                                <option value="0">0 · precise</option>
+                                <option value="0.3">0.3</option>
+                                <option value="0.7">0.7</option>
+                                <option value="1">1</option>
+                                <option value="1.3">1.3 · creative</option>
+                            </select>
+                        </label>
                     </div>
-                    <div class="innerbox">
-                        <label for="imageSteps">Steps:</label>
-                        <select id="imageSteps"></select>
-                    </div>
-                    <div class="innerbox">
-                        <label for="imageSeed">Seed:</label>
-                        <select id="imageSeed">
-                            <option value="42" selected>42 — Default</option>
-                            <option value="random">Random</option>
-                            <option value="123">123</option>
-                            <option value="456">456</option>
-                            <option value="789">789</option>
-                            <option value="1234">1234</option>
-                        </select>
-                    </div>
-                </div>
-                <button class="generateButton" id="imageGenerate" type="button" data-kind="image">Generate</button>
-                <div class="jobBox" id="imageJob" hidden></div>
-                <div class="gallery" id="imageGallery"></div>
-            </section>
+                    <div class="messages" id="messages"></div>
+                    <form class="composer" id="composer">
+                        <textarea id="prompt" aria-label="Message" placeholder="Send a message" rows="1"></textarea>
+                        <button class="btn btn-primary btn-icon" id="sendButton" type="submit" aria-label="Send" title="Send"></button>
+                    </form>
+                </section>
 
-            <!-- Videos -->
-            <section class="view genView" id="view-videos" hidden>
-                <h2>Video Generation</h2>
-                <textarea class="promptInput" id="videoPrompt" aria-label="Video prompt" placeholder="Enter your prompt..." rows="1" maxlength="4000"></textarea>
-                <div class="mainbox">
-                    <div class="innerbox">
-                        <label for="videoResolution">Resolution:</label>
-                        <select id="videoResolution">
-                            <option value="448x256">448 × 256 — Quick test</option>
-                            <option value="512x288">512 × 288</option>
-                            <option value="640x384" selected>640 × 384 — Default</option>
-                            <option value="832x480">832 × 480</option>
-                            <option value="1024x576">1024 × 576</option>
-                            <option value="1280x704">1280 × 704 — Higher resolution</option>
-                        </select>
+                <!-- Images -->
+                <section class="view gen-view" id="view-images" aria-label="Images" hidden>
+                    <div class="card gen-card">
+                        <textarea class="gen-prompt" id="imagePrompt" aria-label="Image prompt" placeholder="Describe the image" rows="2" maxlength="4000"></textarea>
+                        <div class="field-row">
+                            <label><span>Model</span>
+                                <select id="imageModel">
+                                    <option value="anime" selected>Anime · WAI</option>
+                                    <option value="realistic">Realistic · Z-Image</option>
+                                </select>
+                            </label>
+                            <label><span>Resolution</span>
+                                <select id="imageResolution">
+                                    <option value="512x512">512 × 512 · quick test</option>
+                                    <option value="768x768">768 × 768</option>
+                                    <option value="1024x1024" selected>1024 × 1024</option>
+                                    <option value="832x1216">832 × 1216 · portrait</option>
+                                    <option value="1216x832">1216 × 832 · landscape</option>
+                                </select>
+                            </label>
+                            <label><span>Steps</span>
+                                <select id="imageSteps"></select>
+                            </label>
+                            <label><span>Seed</span>
+                                <select id="imageSeed">
+                                    <option value="42" selected>42</option>
+                                    <option value="random">Random</option>
+                                    <option value="123">123</option>
+                                    <option value="456">456</option>
+                                    <option value="789">789</option>
+                                    <option value="1234">1234</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="gen-actions">
+                            <button class="btn btn-primary generate-button" id="imageGenerate" type="button" data-kind="image">Generate</button>
+                        </div>
+                        <div class="job-box" id="imageJob" hidden></div>
                     </div>
-                    <div class="innerbox">
-                        <label for="videoFrames">Frames:</label>
-                        <select id="videoFrames">
-                            <option value="17">17 — Quick test</option>
-                            <option value="33" selected>33 — Default</option>
-                            <option value="49">49</option>
-                            <option value="65">65</option>
-                            <option value="81">81</option>
-                        </select>
+                    <div class="gallery" id="imageGallery"></div>
+                </section>
+
+                <!-- Videos -->
+                <section class="view gen-view" id="view-videos" aria-label="Videos" hidden>
+                    <div class="card gen-card">
+                        <textarea class="gen-prompt" id="videoPrompt" aria-label="Video prompt" placeholder="Describe the video" rows="2" maxlength="4000"></textarea>
+                        <div class="field-row">
+                            <label><span>Resolution</span>
+                                <select id="videoResolution">
+                                    <option value="448x256">448 × 256 · quick test</option>
+                                    <option value="512x288">512 × 288</option>
+                                    <option value="640x384" selected>640 × 384</option>
+                                    <option value="832x480">832 × 480</option>
+                                    <option value="1024x576">1024 × 576</option>
+                                    <option value="1280x704">1280 × 704</option>
+                                </select>
+                            </label>
+                            <label><span>Frames</span>
+                                <select id="videoFrames">
+                                    <option value="17">17 · quick test</option>
+                                    <option value="33" selected>33</option>
+                                    <option value="49">49</option>
+                                    <option value="65">65</option>
+                                    <option value="81">81</option>
+                                </select>
+                            </label>
+                            <label><span>Steps</span>
+                                <select id="videoSteps">
+                                    <option value="20">20</option>
+                                    <option value="30">30</option>
+                                    <option value="40">40</option>
+                                    <option value="50" selected>50</option>
+                                    <option value="60">60</option>
+                                </select>
+                            </label>
+                            <label><span>FPS</span>
+                                <select id="videoFps">
+                                    <option value="12">12</option>
+                                    <option value="16">16</option>
+                                    <option value="24" selected>24</option>
+                                    <option value="30">30</option>
+                                </select>
+                            </label>
+                            <label><span>Seed</span>
+                                <select id="videoSeed">
+                                    <option value="42" selected>42</option>
+                                    <option value="random">Random</option>
+                                    <option value="123">123</option>
+                                    <option value="456">456</option>
+                                    <option value="789">789</option>
+                                    <option value="1234">1234</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="gen-actions">
+                            <span class="hint" id="videoLength"></span>
+                            <button class="btn btn-primary generate-button" id="videoGenerate" type="button" data-kind="video">Generate</button>
+                        </div>
+                        <div class="job-box" id="videoJob" hidden></div>
                     </div>
-                    <div class="innerbox">
-                        <label for="videoSteps">Steps:</label>
-                        <select id="videoSteps">
-                            <option value="20">20</option>
-                            <option value="30">30</option>
-                            <option value="40">40</option>
-                            <option value="50" selected>50 — Default</option>
-                            <option value="60">60</option>
-                        </select>
-                    </div>
-                    <div class="innerbox">
-                        <label for="videoFps">FPS:</label>
-                        <select id="videoFps">
-                            <option value="12">12</option>
-                            <option value="16">16</option>
-                            <option value="24" selected>24 — Default</option>
-                            <option value="30">30</option>
-                        </select>
-                    </div>
-                    <div class="innerbox">
-                        <label for="videoSeed">Seed:</label>
-                        <select id="videoSeed">
-                            <option value="42" selected>42 — Default</option>
-                            <option value="random">Random</option>
-                            <option value="123">123</option>
-                            <option value="456">456</option>
-                            <option value="789">789</option>
-                            <option value="1234">1234</option>
-                        </select>
-                    </div>
-                </div>
-                <p class="note" id="videoLength"></p>
-                <button class="generateButton" id="videoGenerate" type="button" data-kind="video">Generate</button>
-                <div class="jobBox" id="videoJob" hidden></div>
-                <div class="gallery" id="videoGallery"></div>
-            </section>
-        </main>
+                    <div class="gallery" id="videoGallery"></div>
+                </section>
+            </main>
+        </div>
     </body>
 </html>
