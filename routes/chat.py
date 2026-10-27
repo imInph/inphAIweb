@@ -9,6 +9,7 @@ import uuid
 import zipfile
 from flask import Blueprint, Response, g, jsonify, request, send_file, send_from_directory, stream_with_context
 import llm
+import knowledge
 import settings
 import store
 import uploads
@@ -36,6 +37,11 @@ def chat_fields(data, partial=True):
             if type(data[flag]) is not bool:
                 raise ValueError(f'{flag} must be true or false')
             fields[flag] = int(data[flag])
+    if 'knowledge_ids' in data:
+        ids = data['knowledge_ids']
+        if not isinstance(ids, list) or len(ids) > 20 or not all(type(i) is int for i in ids):
+            raise ValueError('knowledge_ids must be a list of collection ids')
+        fields['knowledge_ids'] = store.owned_knowledge(list(dict.fromkeys(ids)), g.user['id'])
     if 'persona_id' in data:
         if data['persona_id'] is not None and (type(data['persona_id']) is not int
                                                or not store.get_item('personas', data['persona_id'], g.user['id'])):
@@ -114,8 +120,19 @@ def system_prompt(chat):
     return '\n\n'.join(parts)
 
 
-def history_for(chat, message_id):
-    """What the model is sent to answer message_id: the instructions and the branch up to it."""
+SOURCES_PROMPT = """Use the sources below to answer. Cite each one you use by its number in brackets, like [1].
+If they don't answer the question, say so, then answer from what you know.
+
+<sources>
+{sources}
+</sources>
+
+{question}"""
+
+
+def history_for(chat, message_id, sources=()):
+    """What the model is sent to answer message_id: the instructions, the branch up to it, and
+    (for the message being answered) any knowledge passages found for it."""
     instructions = system_prompt(chat)
     history = [{'role': 'system', 'content': instructions}] if instructions else []
     for m in store.path_to(chat['id'], message_id):
@@ -124,9 +141,23 @@ def history_for(chat, message_id):
             history.append({'role': 'assistant', 'content': THINK_BLOCK.sub('', m['content']).strip()})
         else:
             files = store.message_attachments(m['id'])
-            history.append({'role': 'user', 'content': uploads.with_files(m['content'], files),
-                            'images': uploads.images(files)})
+            content = uploads.with_files(m['content'], files)
+            if m['id'] == message_id and sources:
+                blocks = '\n'.join(f'<source id="{s["n"]}" title="{s["document"]}">\n{s["text"]}\n</source>' for s in sources)
+                content = SOURCES_PROMPT.format(sources=blocks, question=content)
+            history.append({'role': 'user', 'content': content, 'images': uploads.images(files)})
     return history
+
+
+def find_sources(chat, message_id):
+    """Passages from the chat's knowledge collections for the message being answered."""
+    knowledge_ids = store.owned_knowledge(chat['knowledge_ids'], g.user['id'])
+    message = store.get_message(chat['id'], message_id)
+    if not knowledge_ids or not message or not message['content'].strip():
+        return []
+    passages = knowledge.retrieve(knowledge_ids, message['content'])
+    return [{'n': n, 'document': p['document'], 'document_id': p['document_id'], 'knowledge': p['knowledge'],
+             'knowledge_id': p['knowledge_id'], 'text': p['text']} for n, p in enumerate(passages, 1)]
 
 
 def write_title(chat_id, user_id, backend, model):
@@ -153,14 +184,22 @@ def write_title(chat_id, user_id, backend, model):
 
 def reply_stream(chat, user_message_id, backend, model):
     """Stream one answer to user_message_id as NDJSON, saving it (even a stopped, partial one)."""
-    history = history_for(chat, user_message_id)
     options = chat['options']
     user_id = g.user['id']
     auto_title = settings.prefs(g.user)['auto_title']
 
     def events():
         yield json.dumps({'reply_to': user_message_id}) + '\n'
-        text, think, stats, saved = [], [], None, None
+        text, think, stats, saved, sources = [], [], None, None, []
+        if chat['knowledge_ids']:
+            yield json.dumps({'status': 'Searching your knowledge...'}) + '\n'
+            try:
+                sources = find_sources(chat, user_message_id)
+            except Exception as error:
+                yield json.dumps({'status': f"Couldn't search your knowledge: {error}"}) + '\n'
+            if sources:
+                yield json.dumps({'sources': sources}) + '\n'
+        history = history_for(chat, user_message_id, sources)
         try:
             for kind, piece in llm.stream_chat(backend, model, history, options):
                 if kind == 'stats':
@@ -168,7 +207,8 @@ def reply_stream(chat, user_message_id, backend, model):
                 else:
                     (think if kind == 'think' else text).append(piece)
                 yield json.dumps({kind: piece}) + '\n'
-            saved = store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text), ''.join(think), model, stats)
+            saved = store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text), ''.join(think), model,
+                                      stats, sources=sources)
             yield json.dumps({'done': True, 'message_id': saved}) + '\n'
             if auto_title and store.message_count(chat['id']) == 2:
                 threading.Thread(target=write_title, args=(chat['id'], user_id, backend, model), daemon=True).start()
@@ -177,7 +217,8 @@ def reply_stream(chat, user_message_id, backend, model):
         finally:
             # Runs on Stop too (the client disconnects), so a partial reply is kept.
             if saved is None and (text or think):
-                store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text), ''.join(think), model, stats)
+                store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text), ''.join(think), model, stats,
+                                  sources=sources)
 
     return Response(stream_with_context(events()), mimetype='application/x-ndjson',
                     headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})

@@ -1,3 +1,4 @@
+import { loadKnowledgePage } from "./knowledge.js";
 import { $, api, autoGrow, storageSet } from "./util.js";
 import { state } from "./state.js";
 import { setCodeTheme } from "./render.js";
@@ -6,7 +7,7 @@ import { openChat } from "./chat.js";
 import { loadGallery } from "./media.js";
 import { loadSettingsPage } from "./settings.js";
 
-export const TITLES = { chat: "Chat", images: "Images", videos: "Videos", models: "Models", settings: "Settings" };
+export const TITLES = { chat: "Chat", images: "Images", videos: "Videos", knowledge: "Knowledge", models: "Models", settings: "Settings" };
 export const VIEWS = Object.keys(TITLES);
 
 // Views
@@ -28,6 +29,8 @@ export function showView() {
         loadSettingsPage();
     } else if (state.view === "models") {
         loadCatalog();
+    } else if (state.view === "knowledge") {
+        loadKnowledgePage();
     } else {
         loadGallery(state.view === "images" ? "image" : "video");
     }

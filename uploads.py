@@ -75,6 +75,22 @@ def save(user_id, file):
     return store.add_attachment(user_id, attachment_id, kind, name, mime, len(data), f'{attachment_id}/{name}', text, truncated)
 
 
+def file_text(attachment, question):
+    """A file's text for the model. A very long one is cut down to the passages that best match
+    the question (when an embedding model is there to find them; else its beginning)."""
+    import knowledge
+    text = attachment['text']
+    if len(text) <= knowledge.LARGE_FILE_CHARS:
+        return text, ''
+    if question.strip():
+        try:
+            passages = knowledge.passages_from_text(attachment['id'], text, question)
+            return '\n[...]\n'.join(passages), ' excerpts="the passages that best match the question"'
+        except Exception as error:
+            print(f'Could not search {attachment["name"]}: {error}', flush=True)
+    return text[:knowledge.LARGE_FILE_CHARS], ' truncated="true"'
+
+
 def with_files(content, attachments):
     """The message as the model sees it: file contents first, then what was typed."""
     files = [a for a in attachments if a['kind'] == 'text']
@@ -82,8 +98,9 @@ def with_files(content, attachments):
         return content
     blocks = []
     for a in files:
-        marker = ' truncated="true"' if a['truncated'] else ''
-        blocks.append(f'<file name="{a["name"]}"{marker}>\n{a["text"]}\n</file>')
+        text, note = file_text(a, content)
+        marker = note or (' truncated="true"' if a['truncated'] else '')
+        blocks.append(f'<file name="{a["name"]}"{marker}>\n{text}\n</file>')
     return '\n\n'.join(blocks + ([content] if content.strip() else []))
 
 

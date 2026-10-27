@@ -1,3 +1,4 @@
+import { readKnowledgeChecks, renderKnowledgeChecks } from "./knowledge.js";
 import { $, api, autoGrow, copyText, iconButton } from "./util.js";
 import { state } from "./state.js";
 import { renderModelSelect } from "./models.js";
@@ -49,6 +50,7 @@ function renderLibrary() {
         : [emptyNote("Nothing to remember yet.")]));
     fillPersonaModels();
     if (!$("personaOptions").children.length) renderOptions($("personaOptions"), {}, () => {}, null);
+    if (!editingPersona) renderKnowledgeChecks($("personaKnowledge"), readKnowledgeChecks($("personaKnowledge")));
 }
 
 async function removeItem(kind, item) {
@@ -140,6 +142,7 @@ function editPersona(persona) {
     $("personaPrompt").value = persona.system_prompt;
     autoGrow($("personaPrompt"));
     renderOptions($("personaOptions"), persona.options, () => {}, persona.backend);
+    renderKnowledgeChecks($("personaKnowledge"), persona.knowledge_ids || []);
     $("personaSave").textContent = "Save changes";
     $("personaCancel").hidden = false;
     $("personaName").focus();
@@ -149,18 +152,23 @@ function resetPersonaForm() {
     editingPersona = null;
     $("personaForm").reset();
     renderOptions($("personaOptions"), {}, () => {}, null);
+    renderKnowledgeChecks($("personaKnowledge"), []);
     fillPersonaModels();
     $("personaSave").textContent = "Add persona";
     $("personaCancel").hidden = true;
 }
 
 $("personaCancel").addEventListener("click", resetPersonaForm);
+// Collections load separately; redraw the persona's tick boxes when they arrive (keeping what's ticked).
+document.addEventListener("inphai:collections", () =>
+    renderKnowledgeChecks($("personaKnowledge"), readKnowledgeChecks($("personaKnowledge"))));
 $("personaForm").addEventListener("submit", async event => {
     event.preventDefault();
     const [backend, model] = ($("personaModel").value || "\n").split("\n");
     const ok = await saveItem("personas", editingPersona, {
         name: $("personaName").value, color: $("personaColor").value, backend, model,
-        system_prompt: $("personaPrompt").value, options: readOptions($("personaOptions")) });
+        system_prompt: $("personaPrompt").value, options: readOptions($("personaOptions")),
+        knowledge_ids: readKnowledgeChecks($("personaKnowledge")) });
     if (ok) resetPersonaForm();
 });
 

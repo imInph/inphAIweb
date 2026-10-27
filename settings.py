@@ -11,6 +11,10 @@ DEFAULTS = {
     'lmstudio_url': os.environ.get('LMSTUDIO_URL', 'http://localhost:1234').rstrip('/'),
     'ollama_url': os.environ.get('OLLAMA_URL', 'http://localhost:11434').rstrip('/'),
     'unload_ollama': True,
+    # Knowledge: which model turns text into vectors, and how many passages a question gets.
+    'embed_backend': 'ollama',
+    'embed_model': 'nomic-embed-text',
+    'rag_top_k': 5,
     'image_negative_prompt': IMAGE_NEGATIVE_PROMPT,
     'video_negative_prompt': VIDEO_NEGATIVE_PROMPT,
 }
@@ -88,6 +92,16 @@ def validate(data):
         elif key == 'unload_ollama':
             if type(value) is not bool:
                 raise ValueError('unload_ollama must be true or false')
+        elif key == 'embed_backend':
+            if value not in ('ollama', 'lmstudio'):
+                raise ValueError('embed_backend must be ollama or lmstudio')
+        elif key == 'embed_model':
+            if not isinstance(value, str) or not value.strip() or len(value) > 300:
+                raise ValueError('Enter the name of an embedding model')
+            value = value.strip()
+        elif key == 'rag_top_k':
+            if type(value) is not int or not 1 <= value <= 20:
+                raise ValueError('rag_top_k must be a whole number from 1 to 20')
         elif not isinstance(value, str) or len(value) > 4000:
             raise ValueError(f'{key} is too long')
         fields[key] = value

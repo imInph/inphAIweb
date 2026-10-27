@@ -47,6 +47,10 @@
                         <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10.5l5-3v9l-5-3z"/></svg>
                         Videos
                     </a>
+                    <a class="nav-item" href="#knowledge" data-view="knowledge">
+                        <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6.5c-1.8-1.6-4.6-2.2-8-2v13.2c3.4-.2 6.2.4 8 2 1.8-1.6 4.6-2.2 8-2V4.5c-3.4-.2-6.2.4-8 2z"/><path d="M12 6.5v13.2"/></svg>
+                        Knowledge
+                    </a>
                     <a class="nav-item" href="#models" data-view="models">
                         <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.8l8 4.6v9.2l-8 4.6-8-4.6V7.4z"/><path d="M4 7.4l8 4.6 8-4.6M12 12v9.2"/></svg>
                         Models
@@ -137,6 +141,8 @@
                     <div class="messages" id="messages"></div>
                     <form class="composer" id="composer">
                         <div class="slash-menu" id="slashMenu" role="listbox" hidden></div>
+                        <div class="slash-menu" id="hashMenu" role="listbox" hidden></div>
+                        <div class="attachments" id="chatKnowledge" hidden></div>
                         <div class="attachments" id="pendingFiles" hidden></div>
                         <div class="composer-row">
                             <button class="btn btn-ghost btn-icon" id="attachButton" type="button" title="Attach files (or drop them here, or paste)" aria-label="Attach files">
@@ -257,6 +263,41 @@
                         <div class="job-box" id="videoJob" hidden></div>
                     </div>
                     <div class="gallery" id="videoGallery"></div>
+                </section>
+
+                <!-- Knowledge -->
+                <section class="view knowledge-view" id="view-knowledge" aria-label="Knowledge" hidden>
+                    <div class="knowledge-layout">
+                        <div class="card knowledge-list">
+                            <div class="card-head"><h3>Collections</h3></div>
+                            <ul class="item-list" id="collectionList"></ul>
+                            <form class="memory-form" id="newCollectionForm">
+                                <input id="newCollectionName" placeholder="New collection" maxlength="80">
+                                <button class="btn" type="submit">Create</button>
+                            </form>
+                            <p class="card-note">Put documents in a collection, then type <code>#</code> in a chat to let the model use them.</p>
+                        </div>
+                        <div class="card knowledge-detail" id="collectionDetail" hidden>
+                            <div class="card-head">
+                                <h3 id="collectionName"></h3>
+                                <small class="saved" data-saved="knowledge"></small>
+                                <button class="btn btn-ghost btn-sm" type="button" id="renameCollection">Rename</button>
+                                <button class="btn btn-ghost btn-sm" type="button" id="deleteCollection">Delete</button>
+                            </div>
+                            <textarea id="collectionDescription" rows="2" placeholder="What's in it (optional)"></textarea>
+                            <div class="drop-zone" id="documentDrop">
+                                <p>Drop files here or <button class="link-button" type="button" id="addDocuments">choose them</button>.
+                                    Text, Markdown, code, PDF, Word (.docx) and HTML.</p>
+                                <input type="file" id="documentInput" multiple hidden>
+                            </div>
+                            <ul class="item-list" id="documentList"></ul>
+                            <form class="try-search" id="trySearchForm">
+                                <label><span>Try a question</span><input id="trySearch" placeholder="What does it say about...?"></label>
+                                <button class="btn" type="submit">Search</button>
+                            </form>
+                            <ol class="search-passages" id="tryResults"></ol>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Models -->
@@ -385,6 +426,10 @@
                                     <div class="options-head"><span>Model options</span></div>
                                     <div class="options-grid" id="personaOptions"></div>
                                 </div>
+                                <div>
+                                    <div class="options-head"><span>Knowledge it always uses</span></div>
+                                    <div class="check-list" id="personaKnowledge"></div>
+                                </div>
                                 <div class="row-buttons">
                                     <button class="btn btn-primary" type="submit" id="personaSave">Add persona</button>
                                     <button class="btn btn-ghost" type="button" id="personaCancel" hidden>Cancel</button>
@@ -436,6 +481,20 @@
                             <label class="switch-row"><span>Unload Ollama models before generating<small>Frees the GPU's 12 GB. LM Studio models have to be ejected in LM Studio.</small></span>
                                 <input type="checkbox" id="set-unload_ollama" data-setting="unload_ollama" data-group="generation">
                             </label>
+                        </div>
+
+                        <div class="card admin-only" hidden>
+                            <div class="card-head"><h3>Knowledge</h3><span class="tag">Admin</span><small class="saved" data-saved="embeddings"></small></div>
+                            <p class="card-note">The model that turns documents into searchable vectors. Changing it means re-indexing documents (the ↻ beside each).</p>
+                            <div class="field-row">
+                                <label><span>Embeddings from</span>
+                                    <select id="set-embed_backend" data-setting="embed_backend" data-group="embeddings">
+                                        <option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option>
+                                    </select>
+                                </label>
+                                <label><span>Embedding model</span><input id="set-embed_model" data-setting="embed_model" data-group="embeddings" spellcheck="false"></label>
+                                <label><span>Passages per question</span><input id="set-rag_top_k" data-setting="rag_top_k" data-group="embeddings" type="number" min="1" max="20"></label>
+                            </div>
                         </div>
 
                         <div class="card admin-only users-card" hidden>

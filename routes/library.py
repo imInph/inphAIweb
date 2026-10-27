@@ -50,6 +50,11 @@ def validate_persona(data, partial):
         fields['system_prompt'] = text(data, 'system_prompt', 20000, required=False)
     if 'options' in data:
         fields['options'] = settings.validate_options(data['options'])
+    if 'knowledge_ids' in data:
+        ids = data['knowledge_ids']
+        if not isinstance(ids, list) or not all(type(i) is int for i in ids):
+            raise ValueError('knowledge_ids must be a list of collection ids')
+        fields['knowledge_ids'] = store.owned_knowledge(ids, g.user['id'])
     return fields
 
 

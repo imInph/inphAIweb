@@ -10,6 +10,8 @@ export const ICONS = {
     pin: '<path d="M9 4.5h6M10 4.5v5l-3 4h10l-3-4v-5M12 13.5v6"/>',
     folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
     chevron: '<path d="M9.5 6l6 6-6 6"/>',
+    book: '<path d="M12 6.5c-1.8-1.6-4.6-2.2-8-2v13.2c3.4-.2 6.2.4 8 2 1.8-1.6 4.6-2.2 8-2V4.5c-3.4-.2-6.2.4-8 2z"/><path d="M12 6.5v13.2"/>',
+    refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
     left: '<path d="M14.5 6l-6 6 6 6"/>',
     right: '<path d="M9.5 6l6 6-6 6"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',

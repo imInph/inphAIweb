@@ -62,6 +62,18 @@ and you can cancel your own (admins can cancel anyone's).
 - Replies render Markdown, maths (KaTeX), highlighted code, Mermaid diagrams, and a sandboxed
   preview for HTML/SVG code. Tokens per second are shown under each reply. `?` lists shortcuts.
 
+## Knowledge
+
+Make a collection on the Knowledge page and drop documents in (text, Markdown, code, PDF, Word
+.docx, HTML). They're split into passages and indexed in the background with an embedding model:
+by default Ollama's `nomic-embed-text`, so pull it first (`ollama pull nomic-embed-text`, or from
+the Models page). In a chat, type `#` to attach a collection; every message then gets the best
+matching passages (keyword and meaning combined), the model cites them as [1], [2], and a Sources
+list under the reply shows them. Personas can carry collections too. A file attached to a message
+that's too long for the model is answered from its best passages the same way.
+
+The embedding model and the number of passages are admin settings (Settings → Knowledge).
+
 ## Models page
 
 Shows what Ollama has installed (size, quantisation, and whether a model sees images, thinks or

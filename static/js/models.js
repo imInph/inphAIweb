@@ -1,3 +1,4 @@
+import { renderChatKnowledge } from "./knowledge.js";
 import { $, api, storageGet, storageSet } from "./util.js";
 import { state } from "./state.js";
 import { fillCompareSelects, renderMessages } from "./chat.js";
@@ -82,10 +83,12 @@ $("model").addEventListener("change", async () => {
     const persona = picked.persona;
     // A persona brings its own instructions and options with it.
     const fields = { backend: picked.backend, model: picked.model, persona_id: persona ? persona.id : null,
-                     ...(persona ? { system_prompt: persona.system_prompt, options: persona.options } : {}) };
+                     ...(persona ? { system_prompt: persona.system_prompt, options: persona.options,
+                                     knowledge_ids: persona.knowledge_ids || [] } : {}) };
     if (!state.chat) {
         if (persona) {
-            state.draft = { ...state.draft, system_prompt: persona.system_prompt, options: { ...persona.options } };
+            state.draft = { ...state.draft, system_prompt: persona.system_prompt, options: { ...persona.options },
+                            knowledge_ids: [...(persona.knowledge_ids || [])] };
             $("systemPrompt").value = persona.system_prompt;
         }
     } else {
@@ -99,4 +102,5 @@ $("model").addEventListener("change", async () => {
     }
     paintChatOptions();
     renderPending();
+    renderChatKnowledge();
 });

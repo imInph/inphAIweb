@@ -1,3 +1,4 @@
+import { loadCollections } from "./knowledge.js";
 import { $, autoGrow } from "./util.js";
 import { showView, tick } from "./shell.js";
 import { loadModels } from "./models.js";
@@ -23,5 +24,6 @@ setInterval(tick, 1000);
 showView();
 loadModels();
 loadLibrary();
+loadCollections();
 loadChats();
 pollJob();

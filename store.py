@@ -192,10 +192,61 @@ CREATE TABLE IF NOT EXISTS memories (
     add_column(db, 'chats', 'persona_id', 'INTEGER REFERENCES personas(id) ON DELETE SET NULL')
 
 
+def migrate_6(db):
+    """Knowledge: collections of documents, split into chunks with embeddings, that chats can draw on."""
+    db.executescript('''
+CREATE TABLE IF NOT EXISTS knowledge (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY,
+    knowledge_id INTEGER NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    error TEXT,
+    chunks INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chunks (
+    id INTEGER PRIMARY KEY,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    knowledge_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    embedding BLOB
+);
+CREATE INDEX IF NOT EXISTS chunks_knowledge ON chunks(knowledge_id);
+CREATE INDEX IF NOT EXISTS chunks_document ON chunks(document_id);''')
+    try:
+        db.executescript('''
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, content='chunks', content_rowid='id');
+CREATE TRIGGER IF NOT EXISTS chunks_fts_insert AFTER INSERT ON chunks BEGIN
+    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS chunks_fts_delete AFTER DELETE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+END;''')
+    except sqlite3.OperationalError:
+        pass  # without FTS5, retrieval uses the embeddings alone
+    add_column(db, 'chats', 'knowledge_ids', "TEXT NOT NULL DEFAULT '[]'")
+    add_column(db, 'personas', 'knowledge_ids', "TEXT NOT NULL DEFAULT '[]'")
+    add_column(db, 'messages', 'sources', 'TEXT')
+    # A restart mid-indexing: start those documents again.
+    db.execute("UPDATE documents SET status = 'queued' WHERE status = 'indexing'")
+
+
 # Applied in order; PRAGMA user_version records how many have run. Append, never edit or reorder.
 # Each must be safe to run twice: executescript commits as it goes, so a crash can leave one half done.
-MIGRATIONS = [migrate_1, migrate_2, migrate_3, migrate_4, migrate_5]
-CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options', 'pinned', 'archived', 'folder_id', 'persona_id')
+MIGRATIONS = [migrate_1, migrate_2, migrate_3, migrate_4, migrate_5, migrate_6]
+CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options', 'pinned', 'archived', 'folder_id', 'persona_id',
+               'knowledge_ids')
 USER_FIELDS = ('username', 'password_hash', 'role', 'disabled')
 
 
@@ -323,11 +374,15 @@ def delete_user(user_id):
     with connect() as db:
         uploads = [row['path'] for row in db.execute('SELECT path FROM attachments WHERE user_id = ?', (user_id,))]
         media = [row['file'] for row in db.execute('SELECT file FROM media WHERE user_id = ?', (user_id,))]
+        documents = [row['path'] for row in db.execute('SELECT d.path FROM documents d JOIN knowledge k '
+                                                       'ON k.id = d.knowledge_id WHERE k.user_id = ?', (user_id,))]
+        db.execute('DELETE FROM chunks WHERE knowledge_id IN (SELECT id FROM knowledge WHERE user_id = ?)', (user_id,))
         db.execute('DELETE FROM media WHERE user_id = ?', (user_id,))
         db.execute('DELETE FROM attachments WHERE user_id = ?', (user_id,))
         db.execute('DELETE FROM chats WHERE user_id = ?', (user_id,))
         db.execute('DELETE FROM users WHERE id = ?', (user_id,))
     remove_files(uploads)
+    remove_document_files(documents)
     return media
 
 
@@ -527,8 +582,9 @@ def import_chat(user_id, data, saved_files=None):
 
 def chat_columns(fields):
     fields = {key: fields[key] for key in CHAT_FIELDS if key in fields}
-    if 'options' in fields:
-        fields['options'] = json.dumps(fields['options'])
+    for key in ('options', 'knowledge_ids'):
+        if key in fields:
+            fields[key] = json.dumps(fields[key])
     return fields
 
 
@@ -545,7 +601,7 @@ def get_chat(chat_id, user_id):
         chat = db.execute('SELECT * FROM chats WHERE id = ? AND user_id = ?', (chat_id, user_id)).fetchone()
         if chat is None:
             return None
-        rows = db.execute('SELECT id, parent_id, role, content, thinking, model, stats, created_at FROM messages '
+        rows = db.execute('SELECT id, parent_id, role, content, thinking, model, stats, sources, created_at FROM messages '
                           'WHERE chat_id = ? ORDER BY id', (chat_id,)).fetchall()
         path = branch(rows, chat['leaf_id'])
         children = {}
@@ -555,6 +611,7 @@ def get_chat(chat_id, user_id):
         for row in path:
             siblings = children[row['parent_id']]
             messages.append({**dict(row), 'stats': json.loads(row['stats']) if row['stats'] else None,
+                             'sources': json.loads(row['sources']) if row['sources'] else None,
                              'attachments': [], 'siblings': siblings, 'sibling_index': siblings.index(row['id'])})
         by_id = {message['id']: message for message in messages}
         for row in db.execute('SELECT a.* FROM attachments a JOIN messages m ON m.id = a.message_id '
@@ -563,7 +620,8 @@ def get_chat(chat_id, user_id):
                 by_id[row['message_id']]['attachments'].append(attachment_row(row))
         chat = dict(chat)
         chat.pop('temperature', None)
-        return {**chat, 'options': json.loads(chat['options']), 'messages': messages}
+        return {**chat, 'options': json.loads(chat['options']), 'knowledge_ids': json.loads(chat['knowledge_ids']),
+                'messages': messages}
 
 
 def branch(rows, leaf_id):
@@ -671,13 +729,14 @@ def delete_all_chats(user_id):
     return deleted
 
 
-def add_message(chat_id, parent_id, role, content, thinking='', model=None, stats=None, attachments=()):
+def add_message(chat_id, parent_id, role, content, thinking='', model=None, stats=None, attachments=(), sources=None):
     """Add a message under parent_id and show its branch. chat_id must already be checked against its owner."""
     now = time.time()
     with connect() as db:
-        cursor = db.execute('INSERT INTO messages (chat_id, parent_id, role, content, thinking, model, stats, created_at) '
-                            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)', (chat_id, parent_id, role, content, thinking, model,
-                                                                json.dumps(stats) if stats else None, now))
+        cursor = db.execute('INSERT INTO messages (chat_id, parent_id, role, content, thinking, model, stats, sources, '
+                            'created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            (chat_id, parent_id, role, content, thinking, model, json.dumps(stats) if stats else None,
+                             json.dumps(sources) if sources else None, now))
         db.executemany('UPDATE attachments SET message_id = ? WHERE id = ? AND message_id IS NULL',
                        [(cursor.lastrowid, attachment) for attachment in attachments])
         db.execute('UPDATE chats SET updated_at = ?, leaf_id = ? WHERE id = ?', (now, cursor.lastrowid, chat_id))
@@ -867,10 +926,10 @@ def running_job():
 
 LIBRARY = {
     'prompts': ('command', 'title', 'content'),
-    'personas': ('name', 'color', 'backend', 'model', 'system_prompt', 'options'),
+    'personas': ('name', 'color', 'backend', 'model', 'system_prompt', 'options', 'knowledge_ids'),
     'memories': ('content',),
 }
-JSON_COLUMNS = {'options'}
+JSON_COLUMNS = {'options', 'knowledge_ids'}
 ORDER = {'prompts': 'command', 'personas': 'name COLLATE NOCASE', 'memories': 'id'}
 
 
@@ -916,3 +975,152 @@ def update_item(table, item_id, user_id, fields):
 def delete_item(table, item_id, user_id):
     with connect() as db:
         return db.execute(f'DELETE FROM {table} WHERE id = ? AND user_id = ?', (item_id, user_id)).rowcount > 0
+
+
+# Knowledge
+
+KNOWLEDGE = DATA / 'knowledge'
+
+
+def list_knowledge(user_id):
+    with connect() as db:
+        return [dict(row) for row in db.execute(
+            'SELECT k.*, (SELECT COUNT(*) FROM documents d WHERE d.knowledge_id = k.id) AS documents, '
+            "(SELECT COUNT(*) FROM documents d WHERE d.knowledge_id = k.id AND d.status IN ('queued', 'indexing')) AS indexing "
+            'FROM knowledge k WHERE k.user_id = ? ORDER BY k.name COLLATE NOCASE', (user_id,))]
+
+
+def get_knowledge(knowledge_id, user_id):
+    with connect() as db:
+        row = db.execute('SELECT * FROM knowledge WHERE id = ? AND user_id = ?', (knowledge_id, user_id)).fetchone()
+        if row is None:
+            return None
+        documents = [dict(d) for d in db.execute('SELECT id, name, mime, size, status, error, chunks, created_at '
+                                                 'FROM documents WHERE knowledge_id = ? ORDER BY name COLLATE NOCASE',
+                                                 (knowledge_id,))]
+    return {**dict(row), 'documents': documents}
+
+
+def owned_knowledge(ids, user_id):
+    """The ids among these that are user_id's collections."""
+    if not ids:
+        return []
+    with connect() as db:
+        found = {row['id'] for row in db.execute(
+            f'SELECT id FROM knowledge WHERE user_id = ? AND id IN ({", ".join("?" * len(ids))})', (user_id, *ids))}
+    return [i for i in ids if i in found]
+
+
+def create_knowledge(user_id, name, description=''):
+    with connect() as db:
+        return db.execute('INSERT INTO knowledge (user_id, name, description, created_at) VALUES (?, ?, ?, ?)',
+                          (user_id, name, description, time.time())).lastrowid
+
+
+def update_knowledge(knowledge_id, user_id, fields):
+    fields = {key: fields[key] for key in ('name', 'description') if key in fields}
+    if fields:
+        with connect() as db:
+            db.execute(f'UPDATE knowledge SET {", ".join(f"{key} = ?" for key in fields)} WHERE id = ? AND user_id = ?',
+                       (*fields.values(), knowledge_id, user_id))
+
+
+def remove_document_files(paths):
+    for path in paths:
+        file = KNOWLEDGE / path
+        file.unlink(missing_ok=True)
+        try:
+            file.parent.rmdir()
+        except OSError:
+            pass
+
+
+def delete_knowledge(knowledge_id, user_id):
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM knowledge WHERE id = ? AND user_id = ?', (knowledge_id, user_id)).fetchone():
+            return False
+        paths = [row['path'] for row in db.execute('SELECT path FROM documents WHERE knowledge_id = ?', (knowledge_id,))]
+        db.execute('DELETE FROM chunks WHERE knowledge_id = ?', (knowledge_id,))
+        db.execute('DELETE FROM knowledge WHERE id = ?', (knowledge_id,))
+    remove_document_files(paths)
+    return True
+
+
+def add_document(knowledge_id, name, mime, size, path):
+    with connect() as db:
+        return db.execute('INSERT INTO documents (knowledge_id, name, mime, size, path, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                          (knowledge_id, name, mime, size, path, time.time())).lastrowid
+
+
+def get_document(document_id):
+    with connect() as db:
+        row = db.execute('SELECT d.*, k.user_id FROM documents d JOIN knowledge k ON k.id = d.knowledge_id '
+                         'WHERE d.id = ?', (document_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_document(document_id, user_id):
+    document = get_document(document_id)
+    if document is None or document['user_id'] != user_id:
+        return False
+    with connect() as db:
+        db.execute('DELETE FROM chunks WHERE document_id = ?', (document_id,))
+        db.execute('DELETE FROM documents WHERE id = ?', (document_id,))
+    remove_document_files([document['path']])
+    return True
+
+
+def next_queued_document():
+    with connect() as db:
+        row = db.execute("SELECT id FROM documents WHERE status = 'queued' ORDER BY id LIMIT 1").fetchone()
+    return row['id'] if row else None
+
+
+def set_document_status(document_id, status, error=None, chunks=None):
+    with connect() as db:
+        if chunks is None:
+            db.execute('UPDATE documents SET status = ?, error = ? WHERE id = ?', (status, error, document_id))
+        else:
+            db.execute('UPDATE documents SET status = ?, error = ?, chunks = ? WHERE id = ?',
+                       (status, error, chunks, document_id))
+
+
+def save_chunks(document_id, knowledge_id, texts, embeddings):
+    with connect() as db:
+        db.execute('DELETE FROM chunks WHERE document_id = ?', (document_id,))
+        db.executemany('INSERT INTO chunks (document_id, knowledge_id, position, text, embedding) VALUES (?, ?, ?, ?, ?)',
+                       [(document_id, knowledge_id, i, text, vector) for i, (text, vector) in enumerate(zip(texts, embeddings))])
+
+
+def chunk_vectors(knowledge_ids):
+    """(chunk ids, embedding blobs) of every indexed chunk in these collections."""
+    if not knowledge_ids:
+        return []
+    with connect() as db:
+        return db.execute(f'SELECT id, embedding FROM chunks WHERE embedding IS NOT NULL AND knowledge_id IN '
+                          f'({", ".join("?" * len(knowledge_ids))})', list(knowledge_ids)).fetchall()
+
+
+def keyword_chunks(knowledge_ids, query, limit):
+    """Chunk ids ranked by FTS5 (any of the words), best first; [] without FTS5."""
+    words = [w.replace('"', '') for w in query.split() if len(w) > 2]
+    if not knowledge_ids or not words:
+        return []
+    with connect() as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'chunks_fts'").fetchone():
+            return []
+        match = ' OR '.join(f'"{w}"' for w in words[:30])
+        return [row[0] for row in db.execute(
+            f'SELECT c.id FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid WHERE chunks_fts MATCH ? '
+            f'AND c.knowledge_id IN ({", ".join("?" * len(knowledge_ids))}) ORDER BY rank LIMIT ?',
+            (match, *knowledge_ids, limit))]
+
+
+def chunks_by_id(ids):
+    if not ids:
+        return {}
+    with connect() as db:
+        rows = db.execute(f'SELECT c.id, c.text, c.position, c.document_id, d.name AS document, k.name AS knowledge, '
+                          f'k.id AS knowledge_id FROM chunks c JOIN documents d ON d.id = c.document_id '
+                          f'JOIN knowledge k ON k.id = c.knowledge_id WHERE c.id IN ({", ".join("?" * len(ids))})', list(ids))
+        return {row['id']: dict(row) for row in rows}

@@ -167,7 +167,7 @@ $("deleteAllChats").addEventListener("click", async () => {
 
 export async function saveSetting(field) {
     const key = field.dataset.setting;
-    const value = field.type === "checkbox" ? field.checked : field.value;
+    const value = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value;
     try {
         state.server.settings = (await api("/api/settings", { method: "PATCH", body: { [key]: value } })).settings;
         showSaved(field.dataset.group, "Saved");

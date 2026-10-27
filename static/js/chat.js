@@ -1,3 +1,4 @@
+import { renderChatKnowledge, sourcesElement } from "./knowledge.js";
 import { $, api, autoGrow, button, copyText, icon, iconButton, request } from "./util.js";
 import { state } from "./state.js";
 import { chatKey, pickModel, selectedModel } from "./models.js";
@@ -11,7 +12,7 @@ import { enhance, togglePreview } from "./render.js";
 
 export function newChatDefaults() {
     const defaults = state.me ? state.me.prefs : {};
-    return { system_prompt: defaults.default_system_prompt || "", options: { ...(defaults.default_options || {}) } };
+    return { system_prompt: defaults.default_system_prompt || "", options: { ...(defaults.default_options || {}) }, knowledge_ids: [] };
 }
 
 export async function openChat(chatId) {
@@ -41,6 +42,7 @@ export async function openChat(chatId) {
     paintChatOptions();
     renderMessages();
     renderChatList();
+    renderChatKnowledge();
     const found = target && $("messages").querySelector(`[data-id="${target}"]`);
     if (found) {
         found.scrollIntoView({ block: "center" });
@@ -112,6 +114,7 @@ function replyBody(message, streaming) {
     if (streaming) reply.classList.add("cursor");
     else enhance(reply);
     parts.push(reply);
+    if (message.sources && message.sources.length) parts.push(sourcesElement(message.sources));
     if (key) {
         if (rendered.size > 500) rendered.clear();
         rendered.set(key, parts);
@@ -196,6 +199,9 @@ async function deleteMessage(message) {
 function liveColumn(stream, compare) {
     const box = Object.assign(document.createElement("div"), { className: "message assistant" });
     if (compare) box.append(Object.assign(document.createElement("div"), { className: "compare-model", textContent: stream.model }));
+    if (stream.status && !stream.message.content && !stream.message.thinking) {
+        box.append(Object.assign(document.createElement("p"), { className: "stream-status", textContent: stream.status }));
+    }
     box.append(...replyBody(stream.message, !stream.finished));
     if (stream.error) box.append(Object.assign(document.createElement("p"), { className: "error", textContent: stream.error }));
     const meta = Object.assign(document.createElement("div"), { className: "meta" });
@@ -269,6 +275,8 @@ async function readStream(response, stream, onReplyTo) {
             if (event.stats) stream.message.stats = event.stats;
             if (event.error) stream.error = event.error;
             if (event.message_id) stream.messageId = event.message_id;
+            if (event.status) stream.status = event.status;
+            if (event.sources) stream.message.sources = event.sources;
         }
         schedule();
     }
@@ -315,7 +323,8 @@ export async function send({ content = "", files = [], edit = null, replyTo = nu
         state.chat = await api("/api/chats", {
             method: "POST",
             body: { backend: picked.backend, model: picked.model, persona_id: picked.persona ? picked.persona.id : null,
-                    system_prompt: $("systemPrompt").value, options: state.draft.options || {} },
+                    system_prompt: $("systemPrompt").value, options: state.draft.options || {},
+                    knowledge_ids: state.draft.knowledge_ids || [] },
         });
         history.replaceState(null, "", `#chat/${state.chat.id}`);
     }

@@ -7,12 +7,13 @@ export const state = {
     searchResults: null, // results while the sidebar search has text
     jumpTo: null,        // a message to show when the next chat opens (from search)
     chat: null,          // the open chat with its messages, or null for a new one
-    draft: { system_prompt: "", options: {} },
+    draft: { system_prompt: "", options: {}, knowledge_ids: [] },
     models: [],
     modelErrors: [],
     personas: [],        // the user's personas, shown first in the model picker
     prompts: [],         // saved prompts, typed as /command
     memories: [],
+    collections: [],     // the user's knowledge collections
     live: null,          // the answer(s) streaming in now: { replyTo, streams: [...] }
     compare: null,       // finished side-by-side answers, kept until one is picked
     editing: null,       // id of the message being edited in place
