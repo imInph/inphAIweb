@@ -160,10 +160,42 @@ INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');''')
         pass  # an SQLite without FTS5: search falls back to LIKE
 
 
+def migrate_5(db):
+    """Saved prompts (/commands), personas (a model with its own instructions) and memories."""
+    db.executescript('''
+CREATE TABLE IF NOT EXISTS prompts (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    command TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    UNIQUE (user_id, command)
+);
+CREATE TABLE IF NOT EXISTS personas (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT 'green',
+    backend TEXT NOT NULL,
+    model TEXT NOT NULL,
+    system_prompt TEXT NOT NULL DEFAULT '',
+    options TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS memories (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_at REAL NOT NULL
+);''')
+    add_column(db, 'chats', 'persona_id', 'INTEGER REFERENCES personas(id) ON DELETE SET NULL')
+
+
 # Applied in order; PRAGMA user_version records how many have run. Append, never edit or reorder.
 # Each must be safe to run twice: executescript commits as it goes, so a crash can leave one half done.
-MIGRATIONS = [migrate_1, migrate_2, migrate_3, migrate_4]
-CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options', 'pinned', 'archived', 'folder_id')
+MIGRATIONS = [migrate_1, migrate_2, migrate_3, migrate_4, migrate_5]
+CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options', 'pinned', 'archived', 'folder_id', 'persona_id')
 USER_FIELDS = ('username', 'password_hash', 'role', 'disabled')
 
 
@@ -829,3 +861,58 @@ def queue_ahead(job_id):
 def running_job():
     with connect() as db:
         return job_row(db.execute("SELECT * FROM jobs WHERE state = 'running' LIMIT 1").fetchone())
+
+
+# Prompts, personas and memories: small per-user lists with the same shape of functions.
+
+LIBRARY = {
+    'prompts': ('command', 'title', 'content'),
+    'personas': ('name', 'color', 'backend', 'model', 'system_prompt', 'options'),
+    'memories': ('content',),
+}
+JSON_COLUMNS = {'options'}
+ORDER = {'prompts': 'command', 'personas': 'name COLLATE NOCASE', 'memories': 'id'}
+
+
+def library_row(row):
+    row = dict(row)
+    for key in JSON_COLUMNS & set(row):
+        row[key] = json.loads(row[key])
+    return row
+
+
+def list_items(table, user_id):
+    with connect() as db:
+        return [library_row(row) for row in
+                db.execute(f'SELECT * FROM {table} WHERE user_id = ? ORDER BY {ORDER[table]}', (user_id,))]
+
+
+def get_item(table, item_id, user_id):
+    with connect() as db:
+        row = db.execute(f'SELECT * FROM {table} WHERE id = ? AND user_id = ?', (item_id, user_id)).fetchone()
+    return library_row(row) if row else None
+
+
+def item_columns(table, fields):
+    fields = {key: fields[key] for key in LIBRARY[table] if key in fields}
+    return {key: json.dumps(value) if key in JSON_COLUMNS else value for key, value in fields.items()}
+
+
+def add_item(table, user_id, fields):
+    fields = {**item_columns(table, fields), 'user_id': user_id, 'created_at': time.time()}
+    with connect() as db:
+        return db.execute(f'INSERT INTO {table} ({", ".join(fields)}) VALUES ({", ".join("?" * len(fields))})',
+                          tuple(fields.values())).lastrowid
+
+
+def update_item(table, item_id, user_id, fields):
+    fields = item_columns(table, fields)
+    if fields:
+        with connect() as db:
+            db.execute(f'UPDATE {table} SET {", ".join(f"{key} = ?" for key in fields)} WHERE id = ? AND user_id = ?',
+                       (*fields.values(), item_id, user_id))
+
+
+def delete_item(table, item_id, user_id):
+    with connect() as db:
+        return db.execute(f'DELETE FROM {table} WHERE id = ? AND user_id = ?', (item_id, user_id)).rowcount > 0

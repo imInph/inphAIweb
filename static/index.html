@@ -132,6 +132,7 @@
                     </div>
                     <div class="messages" id="messages"></div>
                     <form class="composer" id="composer">
+                        <div class="slash-menu" id="slashMenu" role="listbox" hidden></div>
                         <div class="attachments" id="pendingFiles" hidden></div>
                         <div class="composer-row">
                             <button class="btn btn-ghost btn-icon" id="attachButton" type="button" title="Attach files (or drop them here, or paste)" aria-label="Attach files">
@@ -310,6 +311,63 @@
                             <button class="btn btn-danger" type="button" id="deleteAllChats">Delete all my chats</button>
                         </div>
 
+                        <div class="card library-card">
+                            <div class="card-head"><h3>Prompts</h3><small class="saved" data-saved="prompts"></small></div>
+                            <p class="card-note">Type <code>/</code> in a message to use one. <code>{{date}}</code>, <code>{{time}}</code> and <code>{{clipboard}}</code> are filled in for you.</p>
+                            <ul class="item-list" id="promptList"></ul>
+                            <form class="item-form" id="promptForm">
+                                <div class="field-row">
+                                    <label><span>Command</span><input id="promptCommand" placeholder="summary" autocapitalize="none" spellcheck="false"></label>
+                                    <label><span>Title</span><input id="promptTitle" placeholder="Summarise this"></label>
+                                </div>
+                                <label><span>Text</span><textarea id="promptContent" rows="3" placeholder="Summarise the following in five bullet points:"></textarea></label>
+                                <div class="row-buttons">
+                                    <button class="btn btn-primary" type="submit" id="promptSave">Add prompt</button>
+                                    <button class="btn btn-ghost" type="button" id="promptCancel" hidden>Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="card library-card">
+                            <div class="card-head"><h3>Personas</h3><small class="saved" data-saved="personas"></small></div>
+                            <p class="card-note">A model with its own instructions and options. Personas appear first in the model picker.</p>
+                            <ul class="item-list" id="personaList"></ul>
+                            <form class="item-form" id="personaForm">
+                                <div class="field-row">
+                                    <label><span>Name</span><input id="personaName" placeholder="Code reviewer"></label>
+                                    <label><span>Colour</span>
+                                        <select id="personaColor">
+                                            <option value="green">Green</option><option value="blue">Blue</option><option value="purple">Purple</option>
+                                            <option value="pink">Pink</option><option value="orange">Orange</option><option value="teal">Teal</option><option value="graphite">Graphite</option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <label><span>Model</span><select id="personaModel"></select></label>
+                                <label><span>Instructions</span><textarea id="personaPrompt" rows="4" placeholder="You review code for bugs and say exactly where they are."></textarea></label>
+                                <div>
+                                    <div class="options-head"><span>Model options</span></div>
+                                    <div class="options-grid" id="personaOptions"></div>
+                                </div>
+                                <div class="row-buttons">
+                                    <button class="btn btn-primary" type="submit" id="personaSave">Add persona</button>
+                                    <button class="btn btn-ghost" type="button" id="personaCancel" hidden>Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>Memories</h3><small class="saved" data-saved="memories"></small></div>
+                            <p class="card-note">Things every chat should know about you, like your name or how you like answers. They're added to each chat's instructions.</p>
+                            <label class="switch-row"><span>Use memories in chats</span>
+                                <input type="checkbox" id="pref-use_memories" data-pref="use_memories" data-group="memories">
+                            </label>
+                            <ul class="item-list" id="memoryList"></ul>
+                            <form class="memory-form" id="memoryForm">
+                                <input id="memoryInput" placeholder="I'm a speedcuber and I write Python" maxlength="1000">
+                                <button class="btn" type="submit">Remember</button>
+                            </form>
+                        </div>
+
                         <div class="card admin-only" hidden>
                             <div class="card-head"><h3>Connections</h3><span class="tag">Admin</span><small class="saved" data-saved="connections"></small></div>
                             <p class="card-note">Where the server finds LM Studio and Ollama. Both use their default ports unless you change them here.</p>
@@ -360,5 +418,21 @@
                 </section>
             </main>
         </div>
+
+        <dialog class="card shortcuts" id="shortcuts" aria-labelledby="shortcutsTitle">
+            <div class="card-head"><h3 id="shortcutsTitle">Keyboard shortcuts</h3>
+                <button class="btn btn-ghost btn-sm" type="button" id="shortcutsClose">Close</button></div>
+            <dl>
+                <dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt><dd>Search chats</dd>
+                <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>O</kbd></dt><dd>New chat</dd>
+                <dt><kbd>Shift</kbd> <kbd>Esc</kbd></dt><dd>Write a message</dd>
+                <dt><kbd>Esc</kbd></dt><dd>Stop the reply</dd>
+                <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>C</kbd></dt><dd>Copy the last reply</dd>
+                <dt><kbd>/</kbd></dt><dd>A saved prompt (at the start of a message)</dd>
+                <dt><kbd>Ctrl</kbd> <kbd>Enter</kbd></dt><dd>Save an edited message</dd>
+                <dt><kbd>?</kbd></dt><dd>This list</dd>
+            </dl>
+            <p class="card-note">On a Mac, <kbd>⌘</kbd> works in place of <kbd>Ctrl</kbd>.</p>
+        </dialog>
     </body>
 </html>

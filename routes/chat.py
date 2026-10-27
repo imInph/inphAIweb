@@ -36,6 +36,11 @@ def chat_fields(data, partial=True):
             if type(data[flag]) is not bool:
                 raise ValueError(f'{flag} must be true or false')
             fields[flag] = int(data[flag])
+    if 'persona_id' in data:
+        if data['persona_id'] is not None and (type(data['persona_id']) is not int
+                                               or not store.get_item('personas', data['persona_id'], g.user['id'])):
+            raise ValueError('persona_id must be one of your personas, or null')
+        fields['persona_id'] = data['persona_id']
     if 'folder_id' in data:
         if data['folder_id'] is not None and (type(data['folder_id']) is not int
                                               or not store.get_folder(data['folder_id'], g.user['id'])):
@@ -99,9 +104,20 @@ def remove_chat(chat_id):
     return ('', 204) if store.delete_chat(chat_id, g.user['id']) else (jsonify(error='No such chat'), 404)
 
 
+def system_prompt(chat):
+    """The chat's instructions, plus the user's memories when they're switched on."""
+    parts = [chat['system_prompt'].strip()] if chat['system_prompt'].strip() else []
+    if settings.prefs(g.user)['use_memories']:
+        memories = [m['content'] for m in store.list_items('memories', g.user['id'])]
+        if memories:
+            parts.append('Things the user has asked you to remember about them:\n' + '\n'.join(f'- {m}' for m in memories))
+    return '\n\n'.join(parts)
+
+
 def history_for(chat, message_id):
-    """What the model is sent to answer message_id: the system prompt and the branch up to it."""
-    history = [{'role': 'system', 'content': chat['system_prompt']}] if chat['system_prompt'].strip() else []
+    """What the model is sent to answer message_id: the instructions and the branch up to it."""
+    instructions = system_prompt(chat)
+    history = [{'role': 'system', 'content': instructions}] if instructions else []
     for m in store.path_to(chat['id'], message_id):
         if m['role'] == 'assistant':
             # Earlier reasoning isn't sent back: it costs context and models aren't trained to see it.

@@ -22,6 +22,7 @@ PREF_DEFAULTS = {
     'enter_sends': None,     # None: on with a keyboard, off on touch screens
     'theme': 'light',
     'auto_title': True,      # the model names a chat after its first reply
+    'use_memories': True,    # add your saved memories to every chat's instructions
 }
 # Before accounts these two were server settings; the first admin inherits them.
 LEGACY_PREFS = ('default_system_prompt', 'default_options')
@@ -112,9 +113,9 @@ def validate_prefs(data):
         elif key == 'enter_sends':
             if value is not None and type(value) is not bool:
                 raise ValueError('enter_sends must be true, false or null')
-        elif key == 'auto_title':
+        elif key in ('auto_title', 'use_memories'):
             if type(value) is not bool:
-                raise ValueError('auto_title must be true or false')
+                raise ValueError(f'{key} must be true or false')
         elif key == 'theme':
             if value not in ('light', 'dark'):
                 raise ValueError('theme must be light or dark')

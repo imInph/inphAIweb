@@ -5,6 +5,7 @@ import { loadChats } from "./chats.js";
 import { setSending } from "./chat.js";
 import { pollJob, updateImageNegative, updateImageSteps, updateVideoLength } from "./media.js";
 import { loadSettings } from "./settings.js";
+import { loadLibrary } from "./library.js";
 
 // Start
 
@@ -21,5 +22,6 @@ tick();
 setInterval(tick, 1000);
 showView();
 loadModels();
+loadLibrary();
 loadChats();
 pollJob();

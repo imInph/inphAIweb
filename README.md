@@ -46,10 +46,21 @@ and you can cancel your own (admins can cancel anyone's).
 - **Files:** attach with the paperclip, drag them onto the chat, or paste. Images (PNG, JPEG,
   WebP) go to vision models; text, code and PDFs are read and put in front of your message.
   Files up to 25 MB; very long text is cut to fit. They're kept in `data/uploads/` with the chat.
+- **Versions:** edit any of your messages or regenerate any reply and the old one is kept beside
+  it (the ‹ 2/3 › arrows). Replies can be edited in place; any message can be deleted.
+- **Compare:** the two-columns button asks up to two more models every message; their answers sit
+  side by side until you pick one to continue with.
 - **Model options** per chat (the sliders button) and as defaults for new chats (Settings):
   temperature, top P/K, min P, repeat penalty, seed, max tokens, context length, keep loaded,
   and thinking on/off. LM Studio uses the ones it supports; the rest are Ollama only.
-- Replies show tokens per second.
+- **Personas:** a model with its own instructions and options, picked like a model.
+- **Prompts:** save text you send often and type `/` to use it (`{{date}}`, `{{time}}`,
+  `{{clipboard}}` are filled in). **Memories:** facts every chat should know about you.
+- **Organising:** chats are named by the model after the first reply, can be pinned, put in
+  folders (drag them), archived, searched (every message, `Ctrl+K`), and exported as Markdown or
+  JSON (or all at once as a .zip, which imports back).
+- Replies render Markdown, maths (KaTeX), highlighted code, Mermaid diagrams, and a sandboxed
+  preview for HTML/SVG code. Tokens per second are shown under each reply. `?` lists shortcuts.
 
 ## LLM servers
 
@@ -79,10 +90,9 @@ Open http://localhost:5002 (or the server's address from another device on the n
 
 ## Settings
 
-The Settings page holds the LM Studio and Ollama addresses, the default system prompt and
-temperature for new chats, the default negative prompts for images and videos, whether Ollama is
-unloaded before a generation, the theme, and what's stored (with a button to delete all chats).
-Your own settings follow you to every device; the server ones (marked Admin) are shared.
+Everyone has their account (password), chat defaults, appearance, prompts, personas, memories
+and their data (export, import, delete). Admins also see the server's connections, generation
+defaults and the users. Your own settings follow you to every device.
 
 ## Notes
 

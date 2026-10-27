@@ -6,7 +6,7 @@ import auth
 import jobs
 import store
 import uploads
-from routes import account, chat, config, media
+from routes import account, chat, config, library, media
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = uploads.MAX_BYTES + 1024 * 1024
@@ -14,7 +14,7 @@ PORT = int(os.environ.get('PORT', '5002'))
 store.init()
 jobs.start_worker()
 app.before_request(auth.guard)
-for blueprint in (account.bp, chat.bp, config.bp, media.bp):
+for blueprint in (account.bp, chat.bp, config.bp, library.bp, media.bp):
     app.register_blueprint(blueprint)
 
 

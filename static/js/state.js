@@ -9,6 +9,10 @@ export const state = {
     chat: null,          // the open chat with its messages, or null for a new one
     draft: { system_prompt: "", options: {} },
     models: [],
+    modelErrors: [],
+    personas: [],        // the user's personas, shown first in the model picker
+    prompts: [],         // saved prompts, typed as /command
+    memories: [],
     live: null,          // the answer(s) streaming in now: { replyTo, streams: [...] }
     compare: null,       // finished side-by-side answers, kept until one is picked
     editing: null,       // id of the message being edited in place

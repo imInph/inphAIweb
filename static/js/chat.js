@@ -1,6 +1,6 @@
 import { $, api, autoGrow, button, copyText, icon, iconButton, request } from "./util.js";
 import { state } from "./state.js";
-import { modelKey, pickModel, selectedModel } from "./models.js";
+import { chatKey, pickModel, selectedModel } from "./models.js";
 import { loadChats, renderChatList } from "./chats.js";
 import { paintChatOptions } from "./options.js";
 import { fileChip, renderPending } from "./attachments.js";
@@ -24,7 +24,7 @@ export async function openChat(chatId) {
     if (chatId) {
         try {
             state.chat = await api(`/api/chats/${chatId}`);
-            pickModel(modelKey(state.chat.backend, state.chat.model));
+            pickModel(chatKey(state.chat));
         } catch (error) {
             location.hash = "#chat";
             return;
@@ -314,14 +314,15 @@ export async function send({ content = "", files = [], edit = null, replyTo = nu
     if (!state.chat) {
         state.chat = await api("/api/chats", {
             method: "POST",
-            body: { ...picked, system_prompt: $("systemPrompt").value, options: state.draft.options || {} },
+            body: { backend: picked.backend, model: picked.model, persona_id: picked.persona ? picked.persona.id : null,
+                    system_prompt: $("systemPrompt").value, options: state.draft.options || {} },
         });
         history.replaceState(null, "", `#chat/${state.chat.id}`);
     }
     const chat = state.chat;
     state.compare = null;
     state.editing = null;
-    const models = [picked, ...compareModels()];
+    const models = [{ backend: picked.backend, model: picked.model }, ...compareModels()];
     const streams = models.map(newStream);
     state.live = { replyTo, streams };
     // Show the message being sent straight away (the reload at the end replaces it with the saved one).
@@ -391,7 +392,8 @@ function compareModels() {
 export function fillCompareSelects() {
     for (const select of $("comparePanel").querySelectorAll("select")) {
         const previous = select.value;
-        select.replaceChildren(new Option("Nobody", ""), ...[...$("model").querySelectorAll("optgroup")].map(group => group.cloneNode(true)));
+        const groups = [...$("model").querySelectorAll("optgroup")].filter(group => group.label !== "Personas");
+        select.replaceChildren(new Option("Nobody", ""), ...groups.map(group => group.cloneNode(true)));
         if ([...select.options].some(option => option.value === previous)) select.value = previous;
     }
 }
