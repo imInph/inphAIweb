@@ -1,0 +1,16 @@
+{
+  "anime": {
+    "repo": "LyliaEngine/waiIllustriousSDXL_v170",
+    "revision": "5ef4e2da7173a160ad04aebcaa2fdcd6d20ed792",
+    "sha256": "f116b0c78ff441467b0cdc8f1936e1ed18ea31e9997c7b132b1b8db533f0bd04",
+    "path": "models/wai/waiIllustriousSDXL_v170.safetensors"
+  },
+  "sdxl_config": {
+    "repo": "stabilityai/stable-diffusion-xl-base-1.0",
+    "revision": "462165984030d82259a11f4367a4eed129e94a7b"
+  },
+  "realistic": {
+    "repo": "Tongyi-MAI/Z-Image-Turbo",
+    "revision": "f332072aa78be7aecdf3ee76d5c247082da564a6"
+  }
+}

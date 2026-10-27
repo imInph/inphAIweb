@@ -1,1 +1,25 @@
+# Chats database, generated images/videos and their logs
+/data/
+*.log
+
+# Downloaded models
+/generators/image/models/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.gguf
+
+# Python environments and caches
+.venvs/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local secrets and operating-system metadata
+.env
+.env.*
+!.env.example
 .DS_Store
+._*
