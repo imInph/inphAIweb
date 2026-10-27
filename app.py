@@ -8,9 +8,10 @@ import jobs
 import llm
 import settings
 import store
+import uploads
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = uploads.MAX_BYTES + 1024 * 1024
 PORT = int(os.environ.get('PORT', '5002'))
 THINK_BLOCK = re.compile(r'<think>.*?(</think>|$)', re.S)
 store.init()
@@ -33,11 +34,8 @@ def chat_fields(data, partial=True):
         if not isinstance(data['system_prompt'], str) or len(data['system_prompt']) > 20000:
             raise ValueError('system_prompt must be text, at most 20000 characters')
         fields['system_prompt'] = data['system_prompt']
-    if 'temperature' in data:
-        value = data['temperature']
-        if value is not None and (type(value) not in (int, float) or not 0 <= value <= 2):
-            raise ValueError('temperature must be empty or a number from 0 to 2')
-        fields['temperature'] = value
+    if 'options' in data:
+        fields['options'] = settings.validate_options(data['options'])
     if 'backend' in data or 'model' in data or not partial:
         if data.get('backend') not in llm.BACKENDS:
             raise ValueError('backend must be ' + ' or '.join(llm.BACKENDS))
@@ -106,33 +104,47 @@ def send(chat_id):
     try:
         fields = chat_fields(data, partial=False)
         regenerate = data.get('regenerate') is True
-        content = data.get('content')
-        if not regenerate and (not isinstance(content, str) or not content.strip() or len(content) > 200000):
-            raise ValueError('Write a message (at most 200000 characters)')
+        content = data.get('content') or ''
+        attachments = data.get('attachments') or []
+        if not isinstance(attachments, list) or len(attachments) > 20 or not all(isinstance(a, str) for a in attachments):
+            raise ValueError('attachments must be a list of at most 20 upload ids')
+        attachments = store.unattached(attachments)
+        if not regenerate and (not isinstance(content, str) or len(content) > 200000
+                               or not (content.strip() or attachments)):
+            raise ValueError('Write a message or attach a file (at most 200000 characters)')
     except ValueError as error:
         return jsonify(error=str(error)), 400
     if regenerate:
         store.drop_trailing_replies(chat_id)
     else:
         if chat['title'] == 'New chat' and not chat['messages']:
-            fields['title'] = ' '.join(content.split())[:60]
-        store.add_message(chat_id, 'user', content)
+            first_file = store.get_attachment(attachments[0])['name'] if attachments else ''
+            fields['title'] = ' '.join(content.split())[:60] or first_file[:60]
+        store.add_message(chat_id, 'user', content, attachments=attachments)
     store.update_chat(chat_id, fields, touch=True)
     chat = store.get_chat(chat_id)
     if not chat['messages'] or chat['messages'][-1]['role'] != 'user':
         return jsonify(error='There is no message to answer'), 400
 
     history = [{'role': 'system', 'content': chat['system_prompt']}] if chat['system_prompt'].strip() else []
-    # Earlier reasoning isn't sent back: it costs context and models aren't trained to see it.
-    history += [{'role': m['role'], 'content': THINK_BLOCK.sub('', m['content']).strip()
-                 if m['role'] == 'assistant' else m['content']} for m in chat['messages']]
+    for m in chat['messages']:
+        if m['role'] == 'assistant':
+            # Earlier reasoning isn't sent back: it costs context and models aren't trained to see it.
+            history.append({'role': 'assistant', 'content': THINK_BLOCK.sub('', m['content']).strip()})
+        else:
+            files = store.message_attachments(m['id']) if m['attachments'] else []
+            history.append({'role': 'user', 'content': uploads.with_files(m['content'], files),
+                            'images': uploads.images(files)})
     backend, model = chat['backend'], chat['model']
 
     def events():
-        text, think = [], []
+        text, think, stats = [], [], None
         try:
-            for kind, piece in llm.stream_chat(backend, model, history, chat['temperature']):
-                (think if kind == 'think' else text).append(piece)
+            for kind, piece in llm.stream_chat(backend, model, history, chat['options']):
+                if kind == 'stats':
+                    stats = piece
+                else:
+                    (think if kind == 'think' else text).append(piece)
                 yield json.dumps({kind: piece}) + '\n'
             yield json.dumps({'done': True}) + '\n'
         except Exception as error:
@@ -140,10 +152,37 @@ def send(chat_id):
         finally:
             # Runs on Stop too (the client disconnects), so a partial reply is kept.
             if text or think:
-                store.add_message(chat_id, 'assistant', ''.join(text), ''.join(think), model)
+                store.add_message(chat_id, 'assistant', ''.join(text), ''.join(think), model, stats)
 
     return Response(stream_with_context(events()), mimetype='application/x-ndjson',
                     headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+
+
+@app.post('/api/uploads')
+def upload():
+    file = request.files.get('file')
+    if file is None:
+        return jsonify(error='Send the file as multipart form data, field "file"'), 400
+    try:
+        return jsonify(uploads.save(file)), 201
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+
+
+@app.delete('/api/uploads/<attachment_id>')
+def remove_upload(attachment_id):
+    # Only an upload that hasn't been sent yet; sent ones belong to their chat.
+    return ('', 204) if store.delete_unattached(attachment_id) else (jsonify(error='No such upload'), 404)
+
+
+@app.get('/api/uploads/<attachment_id>')
+def upload_file(attachment_id):
+    found = store.get_attachment(attachment_id)
+    if found is None:
+        return jsonify(error='No such file'), 404
+    folder, name = found['path'].split('/', 1)
+    return send_from_directory(store.UPLOADS / folder, name, mimetype=found['mime'],
+                               as_attachment=found['kind'] != 'image', download_name=found['name'])
 
 
 # Settings
@@ -155,7 +194,8 @@ def folder_size(path):
 @app.get('/api/settings')
 def get_settings():
     return jsonify(settings=settings.get(), defaults=settings.DEFAULTS, counts=store.counts(),
-                   disk={'database': folder_size(store.DATA) - folder_size(jobs.OUTPUTS),
+                   disk={'database': folder_size(store.DATA) - folder_size(jobs.OUTPUTS) - folder_size(store.UPLOADS),
+                         'files': folder_size(store.UPLOADS),
                          'images': folder_size(jobs.OUTPUTS / 'images'),
                          'videos': folder_size(jobs.OUTPUTS / 'videos')}), 200, {'Cache-Control': 'no-store'}
 

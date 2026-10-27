@@ -28,9 +28,20 @@ bash scripts/setup.sh all     # everything
 Image and video each get their own environment in `.venvs/`, because they need different
 `diffusers` versions. Chat works without either of them.
 
+## Chat
+
+- **Files:** attach with the paperclip, drag them onto the chat, or paste. Images (PNG, JPEG,
+  WebP) go to vision models; text, code and PDFs are read and put in front of your message.
+  Files up to 25 MB; very long text is cut to fit. They're kept in `data/uploads/` with the chat.
+- **Model options** per chat (the sliders button) and as defaults for new chats (Settings):
+  temperature, top P/K, min P, repeat penalty, seed, max tokens, context length, keep loaded,
+  and thinking on/off. LM Studio uses the ones it supports; the rest are Ollama only.
+- Replies show tokens per second.
+
 ## LLM servers
 
-Both are used on their default ports, through their OpenAI-style `/v1` API.
+Both are used on their default ports: LM Studio through its OpenAI-style `/v1` API, Ollama
+through its own `/api/chat` (its `/v1` ignores options like the context length).
 
 - **Ollama** (`http://localhost:11434`): `curl -fsSL https://ollama.com/install.sh | sh`, then
   pull a model, e.g. `ollama pull qwen3:8b`. It runs as a service after installing.
@@ -41,8 +52,8 @@ Both are used on their default ports, through their OpenAI-style `/v1` API.
 Any model either server has shows up in the model picker. Press ↻ after starting a server or
 downloading a model. Their addresses can be changed (and tested) in **Settings → Connections**.
 
-Ollama keeps a short context window by default; long chats get cut off at the start. Raise it
-with `OLLAMA_CONTEXT_LENGTH` (e.g. `8192`) in Ollama's service environment.
+Ollama keeps a short context window by default, so long chats (and big files) get cut off at the
+start. Set **Context length** in a chat's options, or as a default in Settings (e.g. `16384`).
 
 ## Run
 

@@ -3,7 +3,7 @@ const state = {
     view: "chat",
     chats: [],
     chat: null,          // the open chat with its messages, or null for a new one
-    draft: { system_prompt: "", temperature: null },
+    draft: { system_prompt: "", options: {} },
     models: [],
     streaming: null,     // AbortController while a reply streams
     job: null,
@@ -14,6 +14,7 @@ const ICONS = {
     send: '<path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/>',
     stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
     edit: '<path d="M12 20.5h8"/><path d="M16.2 3.8a2 2 0 0 1 2.9 2.9L7.5 18.3l-3.8 1 1-3.8z"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>',
     trash: '<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5l1-12.5"/>',
 };
 const TITLES = { chat: "Chat", images: "Images", videos: "Videos", settings: "Settings" };
@@ -198,6 +199,7 @@ function selectedModel() {
 $("refreshModels").addEventListener("click", loadModels);
 $("model").addEventListener("change", () => {
     storageSet("inphai.model", $("model").value);
+    paintChatOptions();
     const picked = selectedModel();
     if (state.chat && picked) api(`/api/chats/${state.chat.id}`, { method: "PATCH", body: picked }).catch(() => {});
 });
@@ -251,8 +253,186 @@ $("newChat").addEventListener("click", () => {
 
 function newChatDefaults() {
     const defaults = state.settings || {};
-    return { system_prompt: defaults.default_system_prompt || "", temperature: defaults.default_temperature ?? null };
+    return { system_prompt: defaults.default_system_prompt || "", options: { ...(defaults.default_options || {}) } };
 }
+
+// Model options (the same fields in the chat panel and in Settings)
+
+const OPTION_FIELDS = [
+    { name: "temperature", label: "Temperature", kind: "float", min: 0, max: 2, step: 0.05, hint: "0–2" },
+    { name: "top_p", label: "Top P", kind: "float", min: 0, max: 1, step: 0.01, hint: "0–1" },
+    { name: "top_k", label: "Top K", kind: "int", min: 0, max: 1000, step: 1, hint: "e.g. 40" },
+    { name: "min_p", label: "Min P", kind: "float", min: 0, max: 1, step: 0.01, hint: "0–1", ollama: true },
+    { name: "repeat_penalty", label: "Repeat penalty", kind: "float", min: 0, max: 3, step: 0.05, hint: "e.g. 1.1" },
+    { name: "seed", label: "Seed", kind: "int", min: 0, step: 1, hint: "random" },
+    { name: "max_tokens", label: "Max tokens", kind: "int", min: 1, step: 1, hint: "no limit" },
+    { name: "num_ctx", label: "Context length", kind: "int", min: 256, step: 256, hint: "e.g. 8192", ollama: true },
+    { name: "keep_alive", label: "Keep loaded", kind: "text", hint: "5m, 1h, -1", ollama: true },
+    { name: "think", label: "Thinking", kind: "bool", ollama: true },
+];
+
+function renderOptions(container, values, onChange, backend) {
+    container.replaceChildren(...OPTION_FIELDS.map(field => {
+        const label = document.createElement("label");
+        const caption = document.createElement("span");
+        caption.append(field.label);
+        if (field.ollama) caption.append(Object.assign(document.createElement("em"), { className: "tag", textContent: "Ollama" }));
+        let input;
+        if (field.kind === "bool") {
+            input = document.createElement("select");
+            input.append(new Option("Model default", ""), new Option("On", "true"), new Option("Off", "false"));
+            input.value = values[field.name] === undefined ? "" : String(values[field.name]);
+        } else {
+            input = Object.assign(document.createElement("input"), {
+                type: field.kind === "text" ? "text" : "number", placeholder: field.hint, spellcheck: false,
+            });
+            if (field.kind !== "text") Object.assign(input, { step: field.step, min: field.min ?? "", max: field.max ?? "" });
+            input.inputMode = field.kind === "int" ? "numeric" : field.kind === "float" ? "decimal" : "text";
+            input.value = values[field.name] ?? "";
+        }
+        input.dataset.option = field.name;
+        input.addEventListener("change", () => onChange(readOptions(container)));
+        label.classList.toggle("unused", Boolean(field.ollama && backend === "lmstudio"));
+        label.title = field.ollama && backend === "lmstudio" ? "Only Ollama uses this one" : "";
+        label.append(caption, input);
+        return label;
+    }));
+}
+
+function readOptions(container) {
+    const options = {};
+    for (const input of container.querySelectorAll("[data-option]")) {
+        const field = OPTION_FIELDS.find(f => f.name === input.dataset.option);
+        const raw = input.value.trim();
+        if (raw === "") continue;
+        if (field.kind === "bool") options[field.name] = raw === "true";
+        else if (field.kind === "text") options[field.name] = raw;
+        else options[field.name] = field.kind === "int" ? Math.round(Number(raw)) : Number(raw);
+    }
+    return options;
+}
+
+function paintChatOptions() {
+    const settings = state.chat || state.draft;
+    const picked = selectedModel();
+    const backend = picked ? picked.backend : null;
+    renderOptions($("chatOptions"), settings.options || {}, saveChatOptions, backend);
+    $("chatOptionsNote").textContent = backend === "lmstudio"
+        ? "Greyed-out ones are Ollama only."
+        : "Empty means the model's own default.";
+}
+
+async function saveChatOptions(options) {
+    if (!state.chat) {
+        state.draft.options = options;
+        return;
+    }
+    try {
+        const saved = await api(`/api/chats/${state.chat.id}`, { method: "PATCH", body: { options } });
+        state.chat.options = saved.options;
+        showSaved("chatOptions", "Saved");
+    } catch (error) {
+        showSaved("chatOptions", error.message, true);
+    }
+}
+
+// Attachments
+
+state.pending = [];
+
+function formatSize(bytes) {
+    return bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+}
+
+function fileChip(file, onRemove) {
+    const chip = Object.assign(document.createElement(file.url && !onRemove ? "a" : "div"), { className: "file-chip" });
+    if (file.url && !onRemove) Object.assign(chip, { href: file.url, title: `Download ${file.name}` });
+    if (file.status === "error") chip.classList.add("error");
+    if (file.status === "uploading") chip.classList.add("loading");
+    if (file.kind === "image" && (file.preview || file.url)) {
+        chip.append(Object.assign(document.createElement("img"), { src: file.preview || file.url, alt: "" }));
+    } else {
+        const ext = (file.name.split(".").pop() || "file").slice(0, 4);
+        chip.append(Object.assign(document.createElement("span"), { className: "file-icon", textContent: ext }));
+    }
+    const text = Object.assign(document.createElement("span"), { className: "file-text" });
+    const detail = file.status === "uploading" ? "Uploading..." : file.status === "error" ? file.error
+        : `${formatSize(file.size)}${file.truncated ? " · cut to fit" : ""}`;
+    text.append(Object.assign(document.createElement("span"), { className: "file-name", textContent: file.name, title: file.name }),
+        Object.assign(document.createElement("span"), { className: "file-size", textContent: detail }));
+    chip.append(text);
+    if (onRemove) chip.append(iconButton("close", `Remove ${file.name}`, onRemove));
+    return chip;
+}
+
+function renderPending() {
+    const box = $("pendingFiles");
+    box.hidden = !state.pending.length;
+    box.replaceChildren(...state.pending.map(file => fileChip(file, () => removePending(file))));
+}
+
+function removePending(file) {
+    state.pending = state.pending.filter(f => f !== file);
+    if (file.id) api(`/api/uploads/${file.id}`, { method: "DELETE" }).catch(() => {});
+    if (file.preview) URL.revokeObjectURL(file.preview);
+    renderPending();
+}
+
+async function addFiles(files) {
+    for (const blob of files) {
+        const file = { name: blob.name || "pasted-image.png", size: blob.size, status: "uploading",
+                       kind: blob.type.startsWith("image/") ? "image" : "text",
+                       preview: blob.type.startsWith("image/") ? URL.createObjectURL(blob) : null };
+        state.pending.push(file);
+        renderPending();
+        const form = new FormData();
+        form.append("file", blob, file.name);
+        try {
+            const response = await fetch("/api/uploads", { method: "POST", body: form });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || `Upload failed (${response.status})`);
+            Object.assign(file, result, { status: "ready" });
+            if (!state.pending.includes(file)) api(`/api/uploads/${file.id}`, { method: "DELETE" }).catch(() => {});
+        } catch (error) {
+            Object.assign(file, { status: "error", error: error.message });
+        }
+        renderPending();
+    }
+}
+
+$("attachButton").addEventListener("click", () => $("fileInput").click());
+$("fileInput").addEventListener("change", () => {
+    addFiles([...$("fileInput").files]);
+    $("fileInput").value = "";
+});
+$("prompt").addEventListener("paste", event => {
+    const files = [...(event.clipboardData?.files || [])];
+    if (files.length) {
+        event.preventDefault();
+        addFiles(files);
+    }
+});
+
+let dragDepth = 0;
+const dragHasFiles = event => [...(event.dataTransfer?.types || [])].includes("Files");
+$("view-chat").addEventListener("dragenter", event => {
+    if (!dragHasFiles(event)) return;
+    dragDepth++;
+    $("dropOverlay").hidden = false;
+});
+$("view-chat").addEventListener("dragleave", () => {
+    if (--dragDepth <= 0) { dragDepth = 0; $("dropOverlay").hidden = true; }
+});
+$("view-chat").addEventListener("dragover", event => { if (dragHasFiles(event)) event.preventDefault(); });
+$("view-chat").addEventListener("drop", event => {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    $("dropOverlay").hidden = true;
+    addFiles([...event.dataTransfer.files]);
+});
+
+// One chat
 
 async function openChat(chatId) {
     if (state.streaming) state.streaming.abort();
@@ -269,7 +449,7 @@ async function openChat(chatId) {
     }
     const settings = state.chat || state.draft;
     $("systemPrompt").value = settings.system_prompt;
-    $("temperature").value = settings.temperature === null ? "" : String(settings.temperature);
+    paintChatOptions();
     renderMessages();
     renderChatList();
 }
@@ -289,8 +469,18 @@ function messageElement(message, options = {}) {
     const box = document.createElement("div");
     box.className = `message ${message.role}`;
     if (message.role === "user") {
-        const bubble = Object.assign(document.createElement("div"), { className: "bubble", textContent: message.content });
-        box.append(bubble);
+        const files = message.attachments || [];
+        if (files.length) {
+            const list = Object.assign(document.createElement("div"), { className: "message-files" });
+            list.append(...files.map(file => {
+                if (file.kind !== "image") return fileChip(file);
+                const link = Object.assign(document.createElement("a"), { className: "image-file", href: file.url || file.preview, target: "_blank" });
+                link.append(Object.assign(document.createElement("img"), { src: file.url || file.preview, alt: file.name, loading: "lazy" }));
+                return link;
+            }));
+            box.append(list);
+        }
+        if (message.content) box.append(Object.assign(document.createElement("div"), { className: "bubble", textContent: message.content }));
     } else {
         const { thinking, content } = splitThinking(message);
         if (thinking) {
@@ -307,9 +497,15 @@ function messageElement(message, options = {}) {
     }
     if (!options.streaming) {
         const meta = Object.assign(document.createElement("div"), { className: "meta" });
-        if (message.role === "assistant" && message.model) meta.append(Object.assign(document.createElement("span"), { textContent: message.model }));
-        const copy = button("Copy", () => copyText(splitThinking(message).content || message.content, copy));
-        meta.append(copy);
+        if (message.role === "assistant" && message.model) {
+            const stats = message.stats;
+            const detail = stats ? ` · ${stats.tokens_per_second} tok/s · ${stats.tokens} tokens` : "";
+            meta.append(Object.assign(document.createElement("span"), { textContent: message.model + detail }));
+        }
+        if (message.content || message.role === "assistant") {
+            const copy = button("Copy", () => copyText(splitThinking(message).content || message.content, copy));
+            meta.append(copy);
+        }
         if (options.last && message.role === "assistant") meta.append(button("Regenerate", () => sendMessage(null)));
         box.append(meta);
     }
@@ -323,7 +519,7 @@ function renderMessages(live) {
     if (!messages.length && !live) {
         const empty = Object.assign(document.createElement("div"), { className: "empty" });
         empty.textContent = state.models.length
-            ? "Pick a model and send a message."
+            ? "Pick a model and send a message. You can attach images, text files and PDFs."
             : "No models yet. Start LM Studio's server or Ollama, then press ↻.";
         box.replaceChildren(empty);
         return;
@@ -339,23 +535,22 @@ $("messages").addEventListener("click", event => {
     if (copy) copyText(copy.closest(".code-block").querySelector("code").textContent, copy);
 });
 
-async function sendMessage(content) {
+async function sendMessage(content, files = []) {
     const picked = selectedModel();
     if (!picked) {
         alert("Pick a model first. If the list is empty, start LM Studio's server or Ollama and press ↻.");
-        return;
+        return false;
     }
     if (!state.chat) {
-        const temperature = $("temperature").value;
         state.chat = await api("/api/chats", {
             method: "POST",
-            body: { ...picked, system_prompt: $("systemPrompt").value, temperature: temperature === "" ? null : Number(temperature) },
+            body: { ...picked, system_prompt: $("systemPrompt").value, options: state.draft.options || {} },
         });
         history.replaceState(null, "", `#chat/${state.chat.id}`);
     }
     const chat = state.chat;
     if (content !== null) {
-        chat.messages.push({ role: "user", content });
+        chat.messages.push({ role: "user", content, attachments: files });
     } else {
         while (chat.messages.length && chat.messages[chat.messages.length - 1].role === "assistant") chat.messages.pop();
     }
@@ -369,10 +564,12 @@ async function sendMessage(content) {
     const schedule = () => paint ??= requestAnimationFrame(() => { paint = null; renderMessages(live); });
 
     try {
+        const body = content === null ? { ...picked, regenerate: true }
+            : { ...picked, content, attachments: files.map(file => file.id) };
         const response = await fetch(`/api/chats/${chat.id}/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(content === null ? { ...picked, regenerate: true } : { ...picked, content }),
+            body: JSON.stringify(body),
             signal: controller.signal,
         });
         if (!response.ok) {
@@ -404,7 +601,7 @@ async function sendMessage(content) {
         if (state.streaming === controller) state.streaming = null;
         setSending(false);
     }
-    if (state.chat !== chat) return;
+    if (state.chat !== chat) return true;
     // Reload from the database so what's shown is exactly what was saved.
     try {
         state.chat = await api(`/api/chats/${chat.id}`);
@@ -417,6 +614,7 @@ async function sendMessage(content) {
         $("messages").scrollTop = $("messages").scrollHeight;
     }
     loadChats();
+    return true;
 }
 
 function setSending(sending) {
@@ -427,17 +625,32 @@ function setSending(sending) {
     send.classList.toggle("stop", sending);
 }
 
-$("composer").addEventListener("submit", event => {
+$("composer").addEventListener("submit", async event => {
     event.preventDefault();
     if (state.streaming) {
         state.streaming.abort();
         return;
     }
+    if (state.pending.some(file => file.status === "uploading")) return;
     const content = $("prompt").value;
-    if (!content.trim()) return;
+    const files = state.pending.filter(file => file.status === "ready");
+    if (!content.trim() && !files.length) return;
     $("prompt").value = "";
     autoGrow($("prompt"));
-    sendMessage(content).catch(error => alert(error.message));
+    const sentPending = state.pending;
+    state.pending = [];
+    renderPending();
+    try {
+        if (!(await sendMessage(content, files))) throw new Error("not sent");
+        sentPending.filter(file => file.status === "error").forEach(file => file.preview && URL.revokeObjectURL(file.preview));
+    } catch (error) {
+        // Nothing was sent: put the message and its files back.
+        $("prompt").value = content;
+        autoGrow($("prompt"));
+        state.pending = sentPending;
+        renderPending();
+        if (error.message !== "not sent") alert(error.message);
+    }
 });
 
 function enterSends() {
@@ -457,21 +670,20 @@ $("settingsButton").addEventListener("click", () => {
     const open = $("settings").hidden;
     $("settings").hidden = !open;
     $("settingsButton").setAttribute("aria-expanded", String(open));
+    if (open) autoGrow($("systemPrompt"));
 });
 
-function saveChatSettings() {
-    const temperature = $("temperature").value === "" ? null : Number($("temperature").value);
-    const fields = { system_prompt: $("systemPrompt").value, temperature };
+$("systemPrompt").addEventListener("change", () => {
+    const system_prompt = $("systemPrompt").value;
     if (!state.chat) {
-        state.draft = fields;
+        state.draft.system_prompt = system_prompt;
         return;
     }
-    Object.assign(state.chat, fields);
-    api(`/api/chats/${state.chat.id}`, { method: "PATCH", body: fields }).catch(error => alert(error.message));
-}
-
-$("systemPrompt").addEventListener("change", saveChatSettings);
-$("temperature").addEventListener("change", saveChatSettings);
+    state.chat.system_prompt = system_prompt;
+    api(`/api/chats/${state.chat.id}`, { method: "PATCH", body: { system_prompt } })
+        .then(() => showSaved("chatOptions", "Saved"))
+        .catch(error => showSaved("chatOptions", error.message, true));
+});
 
 // Images and videos
 
@@ -737,7 +949,7 @@ async function loadSettings() {
         if (!state.chat) {
             state.draft = newChatDefaults();
             $("systemPrompt").value = state.draft.system_prompt;
-            $("temperature").value = state.draft.temperature === null ? "" : String(state.draft.temperature);
+            paintChatOptions();
         }
         fillNegatives();
         return result;
@@ -765,11 +977,12 @@ async function loadSettingsPage() {
         if (field.tagName === "TEXTAREA") autoGrow(field);
     }
     $("enterSends").checked = enterSends();
+    renderOptions($("defaultOptions"), result.settings.default_options, saveDefaultOptions, null);
     setTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
     const { counts, disk } = result;
-    const stats = [["Chats", counts.chats], ["Messages", counts.messages], ["Images", counts.images],
-                   ["Videos", counts.videos], ["Database", formatBytes(disk.database)],
-                   ["Media", formatBytes(disk.images + disk.videos)]];
+    const stats = [["Chats", counts.chats], ["Messages", counts.messages], ["Files", counts.files],
+                   ["Images", counts.images], ["Videos", counts.videos], ["Database", formatBytes(disk.database)],
+                   ["Chat files", formatBytes(disk.files)], ["Media", formatBytes(disk.images + disk.videos)]];
     $("dataStats").replaceChildren(...stats.map(([name, value]) => {
         const item = document.createElement("div");
         item.append(Object.assign(document.createElement("dt"), { textContent: name }),
@@ -781,7 +994,6 @@ async function loadSettingsPage() {
 async function saveSetting(field) {
     const key = field.dataset.setting;
     let value = field.type === "checkbox" ? field.checked : field.value;
-    if (key === "default_temperature") value = value === "" ? null : Number(value);
     try {
         state.settings = (await api("/api/settings", { method: "PATCH", body: { [key]: value } })).settings;
         showSaved(field.dataset.group, "Saved");
@@ -789,6 +1001,15 @@ async function saveSetting(field) {
         if (key.endsWith("_url")) loadModels();
     } catch (error) {
         showSaved(field.dataset.group, error.message, true);
+    }
+}
+
+async function saveDefaultOptions(options) {
+    try {
+        state.settings = (await api("/api/settings", { method: "PATCH", body: { default_options: options } })).settings;
+        showSaved("chat", "Saved");
+    } catch (error) {
+        showSaved("chat", error.message, true);
     }
 }
 

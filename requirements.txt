@@ -1,3 +1,4 @@
 # The site itself. Image and video generation use their own environments
 # (generators/*/requirements.txt), installed by scripts/setup.sh.
 Flask>=3.1,<4
+pypdf>=5,<7

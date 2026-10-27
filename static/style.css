@@ -244,10 +244,23 @@ label > span { display: block; margin-bottom: 5px; font-size: .8rem; font-weight
 }
 .backend-note { font-size: .8rem; color: var(--text-faint); }
 
-.settings-card { display: flex; flex-wrap: wrap; gap: 12px; padding: 14px; }
-.settings-card > label:first-child { flex: 1 1 360px; }
-.settings-card > label.inline { flex: 0 1 200px; }
+.settings-card { display: flex; flex-direction: column; gap: 12px; padding: 14px; max-height: 55vh; overflow-y: auto; flex: none; }
 .settings-card textarea { min-height: 72px; }
+.options-saved { align-self: flex-end; min-height: 1em; font-size: .78rem; color: var(--good); font-weight: 560; }
+.options-saved.error { color: var(--bad); }
+
+.options-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.options-head span { font-size: .8rem; font-weight: 550; color: var(--text-dim); }
+.options-head small { font-size: .76rem; color: var(--text-faint); }
+.options-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.options-grid label > span { display: flex; align-items: center; gap: 6px; }
+.options-grid input, .options-grid select { padding: 7px 10px; }
+.options-grid select { padding-right: 30px; }
+.tag {
+    font-size: .62rem; font-weight: 650; letter-spacing: .04em; text-transform: uppercase;
+    padding: 0 5px; border-radius: 5px; background: var(--fill-2); color: var(--text-faint);
+}
+.options-grid .unused { opacity: .45; }
 
 .messages { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 4px; }
 .empty { text-align: center; color: var(--text-faint); margin-top: 18vh; font-size: .95rem; }
@@ -307,11 +320,50 @@ label > span { display: block; margin-bottom: 5px; font-size: .8rem; font-weight
 .code-block code { background: none; padding: 0; font-size: .84rem; }
 .cursor::after { content: "▍"; color: var(--accent); }
 
-.composer {
-    display: flex; gap: 8px; align-items: flex-end;
-    width: 100%; max-width: 800px; margin: 0 auto;
-    padding: 7px 7px 7px 18px; border-radius: 26px;
+/* Attachments: chips in the composer, and on sent messages */
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 0; }
+.file-chip {
+    display: inline-flex; align-items: center; gap: 8px; max-width: 260px;
+    padding: 5px 6px 5px 8px; border-radius: var(--radius-sm); background: var(--fill-2);
+    font-size: .8rem; color: var(--text);
 }
+.file-chip img { width: 34px; height: 34px; object-fit: cover; border-radius: var(--radius-xs); flex: none; }
+.file-chip .file-icon {
+    width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: var(--radius-xs);
+    background: var(--accent-soft); color: var(--accent); font-size: .62rem; font-weight: 700; text-transform: uppercase;
+}
+.file-chip .file-text { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.file-chip .file-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
+.file-chip .file-size { font-size: .72rem; color: var(--text-faint); }
+.file-chip.error { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.file-chip.error .file-size { color: var(--bad); white-space: normal; }
+.file-chip.loading { opacity: .6; }
+.file-chip .btn { flex: none; }
+
+.message-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-bottom: 6px; }
+.message-files a.image-file img {
+    display: block; max-width: 220px; max-height: 220px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); object-fit: cover;
+}
+.message-files .file-chip { background: var(--glass-bg); border: 1px solid var(--glass-border); }
+
+.chat-view { position: relative; }
+.drop-overlay {
+    position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; pointer-events: none;
+    border: 2px dashed var(--accent); border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.drop-overlay div {
+    padding: 12px 20px; border-radius: var(--radius-pill); background: var(--glass-bg-strong);
+    box-shadow: var(--shadow); font-weight: 600;
+}
+
+.composer {
+    display: flex; flex-direction: column; gap: 6px;
+    width: 100%; max-width: 800px; margin: 0 auto;
+    padding: 7px; border-radius: 26px;
+}
+.composer-row { display: flex; gap: 4px; align-items: flex-end; }
 .composer:focus-within {
     border-color: color-mix(in srgb, var(--accent) 60%, transparent);
     box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 0 5px color-mix(in srgb, var(--accent) 20%, transparent), var(--shadow);
@@ -457,6 +509,7 @@ input[type="checkbox"]:focus-visible { box-shadow: var(--focus-ring); }
     .gen-view, .settings-view { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
 
     .chat-bar select.pill { flex: 1; min-width: 0; }
+    .settings-card { max-height: 42dvh; }
     .backend-note { flex-basis: 100%; }
     .message.user .bubble { max-width: 92%; }
     .chat-list li .btn { visibility: visible; }
