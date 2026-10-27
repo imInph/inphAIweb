@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS media (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -118,6 +122,32 @@ def drop_trailing_replies(chat_id):
         db.execute('DELETE FROM messages WHERE chat_id = ? AND role = ? AND id > '
                    '(SELECT COALESCE(MAX(id), 0) FROM messages WHERE chat_id = ? AND role = ?)',
                    (chat_id, 'assistant', chat_id, 'user'))
+
+
+def get_settings(defaults):
+    with connect() as db:
+        saved = {row['key']: json.loads(row['value']) for row in db.execute('SELECT key, value FROM settings')}
+    return {key: saved.get(key, value) for key, value in defaults.items()}
+
+
+def save_settings(fields):
+    with connect() as db:
+        db.executemany('INSERT INTO settings (key, value) VALUES (?, ?) '
+                       'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+                       [(key, json.dumps(value)) for key, value in fields.items()])
+
+
+def delete_all_chats():
+    with connect() as db:
+        return db.execute('DELETE FROM chats').rowcount
+
+
+def counts():
+    with connect() as db:
+        one = lambda sql, *args: db.execute(sql, args).fetchone()[0]
+        return {'chats': one('SELECT COUNT(*) FROM chats'), 'messages': one('SELECT COUNT(*) FROM messages'),
+                'images': one('SELECT COUNT(*) FROM media WHERE kind = ?', 'image'),
+                'videos': one('SELECT COUNT(*) FROM media WHERE kind = ?', 'video')}
 
 
 def add_media(kind, prompt, settings, file, seconds):

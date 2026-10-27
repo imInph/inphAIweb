@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import llm
+import settings
 import store
 
 ROOT = Path(__file__).resolve().parent
@@ -133,7 +134,7 @@ def read_progress(kind, line):
 def run(kind, settings):
     global process
     try:
-        freed = llm.unload_ollama()
+        freed = llm.unload_ollama() if settings.get('unload_ollama') else []
         if freed:
             lines.append('Unloaded from Ollama to free the GPU: ' + ', '.join(freed))
         command, log_path, find_output = command_for(kind, settings)

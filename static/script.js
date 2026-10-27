@@ -7,6 +7,7 @@ const state = {
     models: [],
     streaming: null,     // AbortController while a reply streams
     job: null,
+    settings: null,      // server-side settings (GET /api/settings)
     jobTimer: null,
 };
 const ICONS = {
@@ -15,7 +16,8 @@ const ICONS = {
     edit: '<path d="M12 20.5h8"/><path d="M16.2 3.8a2 2 0 0 1 2.9 2.9L7.5 18.3l-3.8 1 1-3.8z"/>',
     trash: '<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5l1-12.5"/>',
 };
-const TITLES = { chat: "Chat", images: "Images", videos: "Videos" };
+const TITLES = { chat: "Chat", images: "Images", videos: "Videos", settings: "Settings" };
+const VIEWS = Object.keys(TITLES);
 const STAGES = {
     starting: "Starting...",
     loading_model: "Loading model...",
@@ -99,15 +101,19 @@ function copyText(text, button) {
 
 function showView() {
     const [view, id] = location.hash.slice(1).split("/");
-    state.view = ["chat", "images", "videos"].includes(view) ? view : "chat";
-    for (const name of ["chat", "images", "videos"]) $(`view-${name}`).hidden = name !== state.view;
+    state.view = VIEWS.includes(view) ? view : "chat";
+    for (const name of VIEWS) $(`view-${name}`).hidden = name !== state.view;
     document.querySelectorAll(".nav-item").forEach(a => a.classList.toggle("active", a.dataset.view === state.view));
     $("pageTitle").textContent = TITLES[state.view];
+    // Heights measured while a view was hidden come out as 0, so re-measure on show.
+    $(`view-${state.view}`).querySelectorAll("textarea").forEach(autoGrow);
     document.title = state.view === "chat" ? "inphAI" : `${TITLES[state.view]} · inphAI`;
     closeDrawer();
     if (state.view === "chat") {
         const chatId = Number(id) || null;
         if (chatId !== (state.chat && state.chat.id)) openChat(chatId);
+    } else if (state.view === "settings") {
+        loadSettingsPage();
     } else {
         loadGallery(state.view === "images" ? "image" : "video");
     }
@@ -135,12 +141,15 @@ function tick() {
     $("clock").textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
-$("themeButton").addEventListener("click", () => {
-    const dark = document.documentElement.getAttribute("data-theme") !== "dark";
-    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-    document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "#0b0d12" : "#f4f6fa");
-    storageSet("inphai.theme", dark ? "dark" : "light");
-});
+function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", theme === "dark" ? "#0b0d12" : "#f4f6fa");
+    storageSet("inphai.theme", theme);
+    document.querySelectorAll("[data-theme-choice]").forEach(b => b.classList.toggle("on", b.dataset.themeChoice === theme));
+}
+
+$("themeButton").addEventListener("click", () =>
+    setTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark"));
 $("backdrop").addEventListener("click", closeDrawer);
 window.addEventListener("hashchange", showView);
 
@@ -240,10 +249,15 @@ $("newChat").addEventListener("click", () => {
 
 // One chat
 
+function newChatDefaults() {
+    const defaults = state.settings || {};
+    return { system_prompt: defaults.default_system_prompt || "", temperature: defaults.default_temperature ?? null };
+}
+
 async function openChat(chatId) {
     if (state.streaming) state.streaming.abort();
     state.chat = null;
-    state.draft = { system_prompt: "", temperature: null };
+    state.draft = newChatDefaults();
     if (chatId) {
         try {
             state.chat = await api(`/api/chats/${chatId}`);
@@ -426,9 +440,14 @@ $("composer").addEventListener("submit", event => {
     sendMessage(content).catch(error => alert(error.message));
 });
 
+function enterSends() {
+    // Unset: on with a keyboard, off on phones (where Enter is how you get a new line).
+    const saved = storageGet("inphai.enterSends");
+    return saved === null ? !matchMedia("(pointer: coarse)").matches : saved === "on";
+}
+
 $("prompt").addEventListener("keydown", event => {
-    // Enter sends, Shift+Enter is a new line (and phones keep Enter as a new line).
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !matchMedia("(pointer: coarse)").matches) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && enterSends()) {
         event.preventDefault();
         if (!state.streaming) $("composer").requestSubmit();
     }
@@ -471,7 +490,31 @@ function updateVideoLength() {
     $("videoLength").textContent = `About ${seconds.toFixed(1)} s of video. It takes a while, and keeps going if you leave the page.`;
 }
 
-$("imageModel").addEventListener("change", updateImageSteps);
+function updateImageNegative() {
+    // Z-Image-Turbo runs without a negative prompt; generate_image.py rejects one.
+    const realistic = $("imageModel").value === "realistic";
+    $("imageNegative").disabled = realistic;
+    $("imageNegativeNote").textContent = realistic ? "· not used by Z-Image-Turbo" : "";
+}
+
+function fillNegatives(force = false) {
+    if (!state.settings) return;
+    for (const kind of ["image", "video"]) {
+        const box = $(`${kind}Negative`);
+        if (force || !box.dataset.touched) {
+            box.value = state.settings[`${kind}_negative_prompt`];
+            autoGrow(box);
+        }
+    }
+}
+
+$("imageModel").addEventListener("change", () => {
+    updateImageSteps();
+    updateImageNegative();
+});
+for (const kind of ["image", "video"]) {
+    $(`${kind}Negative`).addEventListener("input", event => event.target.dataset.touched = "1");
+}
 $("videoFrames").addEventListener("change", updateVideoLength);
 $("videoFps").addEventListener("change", updateVideoLength);
 
@@ -482,12 +525,15 @@ function seedFrom(select) {
 function generationSettings(kind) {
     if (kind === "image") {
         const [width, height] = $("imageResolution").value.split("x").map(Number);
-        return { model: $("imageModel").value, prompt: $("imagePrompt").value.trim(), width, height,
-                 steps: Number($("imageSteps").value), seed: seedFrom($("imageSeed")) };
+        const settings = { model: $("imageModel").value, prompt: $("imagePrompt").value.trim(), width, height,
+                           steps: Number($("imageSteps").value), seed: seedFrom($("imageSeed")) };
+        if (settings.model === "anime") settings.negative_prompt = $("imageNegative").value.trim();
+        return settings;
     }
     const [width, height] = $("videoResolution").value.split("x").map(Number);
-    return { prompt: $("videoPrompt").value.trim(), width, height, frames: Number($("videoFrames").value),
-             steps: Number($("videoSteps").value), fps: Number($("videoFps").value), seed: seedFrom($("videoSeed")) };
+    return { prompt: $("videoPrompt").value.trim(), negative_prompt: $("videoNegative").value.trim(), width, height,
+             frames: Number($("videoFrames").value), steps: Number($("videoSteps").value),
+             fps: Number($("videoFps").value), seed: seedFrom($("videoSeed")) };
 }
 
 async function generate(kind) {
@@ -645,9 +691,16 @@ function reuseSettings(kind, s) {
     const prompt = $(`${kind}Prompt`);
     prompt.value = s.prompt;
     autoGrow(prompt);
+    const negative = $(`${kind}Negative`);
+    if (typeof s.negative_prompt === "string" && s.negative_prompt) {
+        negative.value = s.negative_prompt;
+        negative.dataset.touched = "1";
+        autoGrow(negative);
+    }
     if (kind === "image") {
         $("imageModel").value = s.model;
         updateImageSteps();
+        updateImageNegative();
         setSelect($("imageResolution"), `${s.width}x${s.height}`);
         setSelect($("imageSteps"), s.steps);
         setSelect($("imageSeed"), s.seed);
@@ -663,13 +716,142 @@ function reuseSettings(kind, s) {
     prompt.focus();
 }
 
+// Settings page
+
+const SAVED_TIMERS = {};
+
+function showSaved(group, message, error = false) {
+    const label = document.querySelector(`[data-saved="${group}"]`);
+    if (!label) return;
+    label.textContent = message;
+    label.classList.toggle("error", error);
+    clearTimeout(SAVED_TIMERS[group]);
+    if (!error) SAVED_TIMERS[group] = setTimeout(() => label.textContent = "", 1800);
+}
+
+async function loadSettings() {
+    try {
+        const result = await api("/api/settings");
+        state.settings = result.settings;
+        state.settingsInfo = result;
+        if (!state.chat) {
+            state.draft = newChatDefaults();
+            $("systemPrompt").value = state.draft.system_prompt;
+            $("temperature").value = state.draft.temperature === null ? "" : String(state.draft.temperature);
+        }
+        fillNegatives();
+        return result;
+    } catch (error) {
+        console.error(error);
+        return null;
+    }
+}
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let value = bytes / 1024, unit = 0;
+    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+    return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
+
+async function loadSettingsPage() {
+    const result = await loadSettings();
+    if (!result) return;
+    for (const field of document.querySelectorAll("[data-setting]")) {
+        const value = result.settings[field.dataset.setting];
+        if (field.type === "checkbox") field.checked = Boolean(value);
+        else field.value = value === null ? "" : String(value);
+        if (field.tagName === "TEXTAREA") autoGrow(field);
+    }
+    $("enterSends").checked = enterSends();
+    setTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
+    const { counts, disk } = result;
+    const stats = [["Chats", counts.chats], ["Messages", counts.messages], ["Images", counts.images],
+                   ["Videos", counts.videos], ["Database", formatBytes(disk.database)],
+                   ["Media", formatBytes(disk.images + disk.videos)]];
+    $("dataStats").replaceChildren(...stats.map(([name, value]) => {
+        const item = document.createElement("div");
+        item.append(Object.assign(document.createElement("dt"), { textContent: name }),
+            Object.assign(document.createElement("dd"), { textContent: String(value) }));
+        return item;
+    }));
+}
+
+async function saveSetting(field) {
+    const key = field.dataset.setting;
+    let value = field.type === "checkbox" ? field.checked : field.value;
+    if (key === "default_temperature") value = value === "" ? null : Number(value);
+    try {
+        state.settings = (await api("/api/settings", { method: "PATCH", body: { [key]: value } })).settings;
+        showSaved(field.dataset.group, "Saved");
+        if (key.endsWith("_negative_prompt")) fillNegatives();
+        if (key.endsWith("_url")) loadModels();
+    } catch (error) {
+        showSaved(field.dataset.group, error.message, true);
+    }
+}
+
+document.querySelectorAll("[data-setting]").forEach(field =>
+    field.addEventListener("change", () => saveSetting(field)));
+
+document.querySelectorAll("[data-test]").forEach(testButton => testButton.addEventListener("click", async () => {
+    const backend = testButton.dataset.test;
+    const output = $(`test-${backend}`);
+    output.className = "test-result";
+    output.textContent = "Checking...";
+    try {
+        const result = await api("/api/settings/test", { method: "POST", body: { backend, url: $(`set-${backend}_url`).value } });
+        output.classList.add(result.ok ? "good" : "bad");
+        output.textContent = result.ok
+            ? `Connected · ${result.models} model${result.models === 1 ? "" : "s"}`
+            : result.error;
+    } catch (error) {
+        output.classList.add("bad");
+        output.textContent = error.message;
+    }
+}));
+
+$("enterSends").addEventListener("change", () => storageSet("inphai.enterSends", $("enterSends").checked ? "on" : "off"));
+document.querySelectorAll("[data-theme-choice]").forEach(choice =>
+    choice.addEventListener("click", () => setTheme(choice.dataset.themeChoice)));
+
+$("resetNegatives").addEventListener("click", async () => {
+    const defaults = state.settingsInfo.defaults;
+    const fields = { image_negative_prompt: defaults.image_negative_prompt, video_negative_prompt: defaults.video_negative_prompt };
+    try {
+        state.settings = (await api("/api/settings", { method: "PATCH", body: fields })).settings;
+        for (const key of Object.keys(fields)) {
+            $(`set-${key}`).value = fields[key];
+            autoGrow($(`set-${key}`));
+        }
+        fillNegatives(true);
+        showSaved("generation", "Restored");
+    } catch (error) {
+        showSaved("generation", error.message, true);
+    }
+});
+
+$("deleteAllChats").addEventListener("click", async () => {
+    if (!state.settingsInfo || !state.settingsInfo.counts.chats) return;
+    const count = state.settingsInfo.counts.chats;
+    if (!confirm(`Delete all ${count} chat${count === 1 ? "" : "s"}? This can't be undone.`)) return;
+    await api("/api/chats", { method: "DELETE" }).catch(error => alert(error.message));
+    state.chat = null;
+    loadChats();
+    loadSettingsPage();
+});
+
 // Start
 
-for (const id of ["prompt", "imagePrompt", "videoPrompt"]) {
+for (const id of ["prompt", "imagePrompt", "videoPrompt", "imageNegative", "videoNegative",
+                  "set-default_system_prompt", "set-image_negative_prompt", "set-video_negative_prompt"]) {
     $(id).addEventListener("input", () => autoGrow($(id)));
 }
 updateImageSteps();
+updateImageNegative();
 updateVideoLength();
+loadSettings();
 setSending(false);
 tick();
 setInterval(tick, 1000);

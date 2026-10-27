@@ -1,23 +1,24 @@
 """LM Studio and Ollama, both through their OpenAI-style /v1 API."""
 import json
-import os
 import urllib.error
 import urllib.request
+import settings
 
-BACKENDS = {
-    'lmstudio': {'name': 'LM Studio', 'url': os.environ.get('LMSTUDIO_URL', 'http://localhost:1234').rstrip('/')},
-    'ollama': {'name': 'Ollama', 'url': os.environ.get('OLLAMA_URL', 'http://localhost:11434').rstrip('/')},
-}
+BACKENDS = {'lmstudio': {'name': 'LM Studio'}, 'ollama': {'name': 'Ollama'}}
 
 
-def request(backend, path, body=None, timeout=5):
+def url(backend):
+    return settings.get(f'{backend}_url')
+
+
+def request(backend, path, body=None, timeout=5, base=None):
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(BACKENDS[backend]['url'] + path, data=data,
+    req = urllib.request.Request((base or url(backend)) + path, data=data,
                                  headers={'Content-Type': 'application/json'})
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-def describe(backend, error):
+def describe(backend, error, base=None):
     name = BACKENDS[backend]['name']
     if isinstance(error, urllib.error.HTTPError):
         try:
@@ -28,7 +29,7 @@ def describe(backend, error):
             detail = None
         return f'{name}: {detail or error.reason} ({error.code})'
     if isinstance(error, urllib.error.URLError):
-        return f'{name} is not running at {BACKENDS[backend]["url"]}'
+        return f'{name} is not running at {base or url(backend)}'
     return f'{name}: {error}'
 
 
@@ -45,6 +46,16 @@ def list_models():
         except Exception as error:
             errors[key] = describe(key, error)
     return found, errors
+
+
+def test(backend, base):
+    """Check an address before it's saved: how many chat models answer there."""
+    try:
+        with request(backend, '/v1/models', base=base) as response:
+            listing = json.load(response)
+        return {'ok': True, 'models': sum('embed' not in item.get('id', '').lower() for item in listing.get('data', []))}
+    except Exception as error:
+        return {'ok': False, 'error': describe(backend, error, base)}
 
 
 def stream_chat(backend, model, messages, temperature=None):

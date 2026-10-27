@@ -39,7 +39,7 @@ Both are used on their default ports, through their OpenAI-style `/v1` API.
   model in the site loads it.
 
 Any model either server has shows up in the model picker. Press ↻ after starting a server or
-downloading a model. Different addresses can be set with `OLLAMA_URL` and `LMSTUDIO_URL`.
+downloading a model. Their addresses can be changed (and tested) in **Settings → Connections**.
 
 Ollama keeps a short context window by default; long chats get cut off at the start. Raise it
 with `OLLAMA_CONTEXT_LENGTH` (e.g. `8192`) in Ollama's service environment.
@@ -52,6 +52,14 @@ bash start.sh
 
 Open http://localhost:5002 (or the server's address from another device on the network). Set
 `PORT` to use another port.
+
+## Settings
+
+The Settings page holds the LM Studio and Ollama addresses, the default system prompt and
+temperature for new chats, the default negative prompts for images and videos, whether Ollama is
+unloaded before a generation, the theme, and what's stored (with a button to delete all chats).
+Everything except the theme and the Enter key choice is saved in the database, so it's the same
+on every device.
 
 ## Notes
 

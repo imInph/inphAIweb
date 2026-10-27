@@ -6,6 +6,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory, stream
 from werkzeug.exceptions import HTTPException
 import jobs
 import llm
+import settings
 import store
 
 app = Flask(__name__)
@@ -66,6 +67,11 @@ def new_chat():
     except ValueError as error:
         return jsonify(error=str(error)), 400
     return jsonify(store.get_chat(store.create_chat(fields))), 201
+
+
+@app.delete('/api/chats')
+def remove_all_chats():
+    return jsonify(deleted=store.delete_all_chats())
 
 
 @app.get('/api/chats/<int:chat_id>')
@@ -138,6 +144,41 @@ def send(chat_id):
 
     return Response(stream_with_context(events()), mimetype='application/x-ndjson',
                     headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+
+
+# Settings
+
+def folder_size(path):
+    return sum(f.stat().st_size for f in path.rglob('*') if f.is_file()) if path.exists() else 0
+
+
+@app.get('/api/settings')
+def get_settings():
+    return jsonify(settings=settings.get(), defaults=settings.DEFAULTS, counts=store.counts(),
+                   disk={'database': folder_size(store.DATA) - folder_size(jobs.OUTPUTS),
+                         'images': folder_size(jobs.OUTPUTS / 'images'),
+                         'videos': folder_size(jobs.OUTPUTS / 'videos')}), 200, {'Cache-Control': 'no-store'}
+
+
+@app.patch('/api/settings')
+def save_settings():
+    try:
+        store.save_settings(settings.validate(request.get_json(silent=True)))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(settings=settings.get())
+
+
+@app.post('/api/settings/test')
+def test_connection():
+    data = request.get_json(silent=True) or {}
+    if data.get('backend') not in llm.BACKENDS:
+        return jsonify(error='backend must be ' + ' or '.join(llm.BACKENDS)), 400
+    try:
+        base = settings.validate({f"{data['backend']}_url": data.get('url')})[f"{data['backend']}_url"]
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(llm.test(data['backend'], base))
 
 
 # Images and videos

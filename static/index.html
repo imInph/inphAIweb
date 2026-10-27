@@ -38,6 +38,10 @@
                         <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10.5l5-3v9l-5-3z"/></svg>
                         Videos
                     </a>
+                    <a class="nav-item" href="#settings" data-view="settings">
+                        <svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h9M17.5 6.5H20M4 12h3M11.5 12H20M4 17.5h11M19.5 17.5h.5"/><circle cx="15.5" cy="6.5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17.5" cy="17.5" r="2"/></svg>
+                        Settings
+                    </a>
                 </nav>
                 <div class="chat-side" id="chatSide">
                     <div class="side-head">
@@ -111,6 +115,9 @@
                 <section class="view gen-view" id="view-images" aria-label="Images" hidden>
                     <div class="card gen-card">
                         <textarea class="gen-prompt" id="imagePrompt" aria-label="Image prompt" placeholder="Describe the image" rows="2" maxlength="4000"></textarea>
+                        <label><span>Negative prompt <em class="hint-inline" id="imageNegativeNote"></em></span>
+                            <textarea class="negative-prompt" id="imageNegative" rows="1" maxlength="4000" placeholder="What to keep out of the image"></textarea>
+                        </label>
                         <div class="field-row">
                             <label><span>Model</span>
                                 <select id="imageModel">
@@ -153,6 +160,9 @@
                 <section class="view gen-view" id="view-videos" aria-label="Videos" hidden>
                     <div class="card gen-card">
                         <textarea class="gen-prompt" id="videoPrompt" aria-label="Video prompt" placeholder="Describe the video" rows="2" maxlength="4000"></textarea>
+                        <label><span>Negative prompt</span>
+                            <textarea class="negative-prompt" id="videoNegative" rows="1" maxlength="4000" placeholder="What to keep out of the video"></textarea>
+                        </label>
                         <div class="field-row">
                             <label><span>Resolution</span>
                                 <select id="videoResolution">
@@ -208,6 +218,80 @@
                         <div class="job-box" id="videoJob" hidden></div>
                     </div>
                     <div class="gallery" id="videoGallery"></div>
+                </section>
+
+                <!-- Settings -->
+                <section class="view settings-view" id="view-settings" aria-label="Settings" hidden>
+                    <div class="settings-grid">
+                        <div class="card">
+                            <div class="card-head"><h3>Connections</h3><small class="saved" data-saved="connections"></small></div>
+                            <p class="card-note">Where the site finds LM Studio and Ollama. Both use their default ports unless you change them here.</p>
+                            <div class="connection">
+                                <label><span>LM Studio</span>
+                                    <input id="set-lmstudio_url" data-setting="lmstudio_url" data-group="connections" type="url" spellcheck="false" autocomplete="off">
+                                </label>
+                                <button class="btn" type="button" data-test="lmstudio">Test</button>
+                                <p class="test-result" id="test-lmstudio"></p>
+                            </div>
+                            <div class="connection">
+                                <label><span>Ollama</span>
+                                    <input id="set-ollama_url" data-setting="ollama_url" data-group="connections" type="url" spellcheck="false" autocomplete="off">
+                                </label>
+                                <button class="btn" type="button" data-test="ollama">Test</button>
+                                <p class="test-result" id="test-ollama"></p>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>Chat</h3><small class="saved" data-saved="chat"></small></div>
+                            <label><span>Default system prompt for new chats</span>
+                                <textarea id="set-default_system_prompt" data-setting="default_system_prompt" data-group="chat" rows="4" placeholder="Empty means none"></textarea>
+                            </label>
+                            <label><span>Default temperature</span>
+                                <select id="set-default_temperature" data-setting="default_temperature" data-group="chat">
+                                    <option value="">Model default</option>
+                                    <option value="0">0 · precise</option>
+                                    <option value="0.3">0.3</option>
+                                    <option value="0.7">0.7</option>
+                                    <option value="1">1</option>
+                                    <option value="1.3">1.3 · creative</option>
+                                </select>
+                            </label>
+                            <label class="switch-row"><span>Enter sends the message<small>Shift+Enter always adds a new line. Off: use the send button.</small></span>
+                                <input type="checkbox" id="enterSends">
+                            </label>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>Generation</h3><small class="saved" data-saved="generation"></small></div>
+                            <label><span>Default negative prompt for images <small class="inline-note">(Anime model)</small></span>
+                                <textarea id="set-image_negative_prompt" data-setting="image_negative_prompt" data-group="generation" rows="2"></textarea>
+                            </label>
+                            <label><span>Default negative prompt for videos</span>
+                                <textarea id="set-video_negative_prompt" data-setting="video_negative_prompt" data-group="generation" rows="2"></textarea>
+                            </label>
+                            <button class="btn btn-sm reset" type="button" id="resetNegatives">Restore the original negative prompts</button>
+                            <label class="switch-row"><span>Unload Ollama models before generating<small>Frees the GPU's 12 GB. LM Studio models have to be ejected in LM Studio.</small></span>
+                                <input type="checkbox" id="set-unload_ollama" data-setting="unload_ollama" data-group="generation">
+                            </label>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>Appearance</h3></div>
+                            <div class="segmented" id="themeChoice">
+                                <button type="button" data-theme-choice="light">Light</button>
+                                <button type="button" data-theme-choice="dark">Dark</button>
+                            </div>
+                            <p class="card-note">Saved in this browser only.</p>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-head"><h3>Data</h3></div>
+                            <dl class="stats" id="dataStats"></dl>
+                            <p class="card-note">Everything lives in <code>data/</code> beside app.py: the chats in <code>inphai.db</code>, images and videos in <code>outputs/</code>.</p>
+                            <button class="btn btn-danger" type="button" id="deleteAllChats">Delete all chats</button>
+                        </div>
+                    </div>
                 </section>
             </main>
         </div>
