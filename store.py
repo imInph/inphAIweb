@@ -283,7 +283,8 @@ def init():
 
 
 def remove_files(paths):
-    paths = list(paths)
+    # Pages read from a #link have no file (an empty path); never aim unlink at UPLOADS itself.
+    paths = [path for path in paths if path]
     if paths:
         with connect() as db:
             still_used = {row['path'] for row in db.execute(
@@ -751,11 +752,11 @@ def attachment_row(row):
     return {**row, 'truncated': bool(row['truncated']), 'url': f"/api/uploads/{row['id']}"}
 
 
-def add_attachment(user_id, attachment_id, kind, name, mime, size, path, text=None, truncated=False):
+def add_attachment(user_id, attachment_id, kind, name, mime, size, path, text=None, truncated=False, message_id=None):
     with connect() as db:
-        db.execute('INSERT INTO attachments (id, user_id, kind, name, mime, size, path, text, truncated, created_at) '
-                   'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                   (attachment_id, user_id, kind, name, mime, size, path, text, int(truncated), time.time()))
+        db.execute('INSERT INTO attachments (id, user_id, message_id, kind, name, mime, size, path, text, truncated, '
+                   'created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                   (attachment_id, user_id, message_id, kind, name, mime, size, path, text, int(truncated), time.time()))
     return get_attachment(attachment_id, user_id)
 
 

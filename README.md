@@ -74,6 +74,25 @@ that's too long for the model is answered from its best passages the same way.
 
 The embedding model and the number of passages are admin settings (Settings → Knowledge).
 
+## Web search
+
+The globe in the composer searches the web for your messages: the model writes a search query,
+the site asks [SearXNG](https://docs.searxng.org/) (a metasearch engine you run yourself), reads
+the top pages and gives the model their best passages as numbered sources. Write `#` and a link
+(`#https://example.com/article`) in a message to have that page read into it.
+
+Run SearXNG with Docker on port 8080:
+
+```sh
+mkdir -p ~/searxng && docker run -d --name searxng --restart unless-stopped \
+  -p 8080:8080 -v ~/searxng:/etc/searxng searxng/searxng
+```
+
+Then switch on its JSON output: in `~/searxng/settings.yml` find `search:` → `formats:` and add
+`- json` under `- html`, and `docker restart searxng`. The address and the number of pages read
+are admin settings (Settings → Web search). Only admins can make the server open pages on your own
+network (so nobody can point it at your router or the LLM servers).
+
 ## Models page
 
 Shows what Ollama has installed (size, quantisation, and whether a model sees images, thinks or

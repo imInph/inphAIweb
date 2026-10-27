@@ -13,6 +13,7 @@ import knowledge
 import settings
 import store
 import uploads
+import web
 
 bp = Blueprint('chat', __name__)
 THINK_BLOCK = re.compile(r'<think>.*?(</think>|$)', re.S)
@@ -182,23 +183,83 @@ def write_title(chat_id, user_id, backend, model):
         store.update_chat(chat_id, user_id, {'title': title[:80]})
 
 
-def reply_stream(chat, user_message_id, backend, model):
-    """Stream one answer to user_message_id as NDJSON, saving it (even a stopped, partial one)."""
+def fetch_links(chat_id, message_id, user):
+    """Open each #https://… link in the message and keep the page as an attachment of it. Yields statuses."""
+    message = store.get_message(chat_id, message_id)
+    already = {a['text'].split('\n', 1)[0] for a in store.message_attachments(message_id) if a['text']}
+    for url in web.links_in(message['content'] if message else ''):
+        if f'Source: {url}' in already:
+            continue
+        yield f'Reading {url}...'
+        try:
+            title, text = web.fetch_page(url, allow_private=user['role'] == 'admin')
+        except Exception as error:
+            yield f"Couldn't open {url}: {error}"
+            continue
+        text = f'Source: {url}\n\n{text.strip()}'
+        truncated = len(text) > uploads.MAX_CHARS
+        store.add_attachment(user['id'], uuid.uuid4().hex, 'text', (title or url)[:200], 'text/html', len(text.encode()), '',
+                             text[:uploads.MAX_CHARS], truncated, message_id=message_id)
+
+
+SEARCH_QUERY_PROMPT = """Write one web search query (at most 10 words) that would find what the user's last
+message needs. Answer with the query only.
+
+{conversation}"""
+
+
+def search_query(chat, message_id, backend, model):
+    """Let the model turn the conversation into a search query; the message itself if that fails."""
+    path = store.path_to(chat['id'], message_id)
+    question = path[-1]['content'] if path else ''
+    recent = '\n\n'.join(f"{'User' if m['role'] == 'user' else 'Assistant'}: {THINK_BLOCK.sub('', m['content']).strip()[:600]}"
+                          for m in path[-5:])
+    try:
+        query = llm.complete(backend, model, [{'role': 'user', 'content': SEARCH_QUERY_PROMPT.format(conversation=recent)}],
+                             {'max_tokens': 40, 'temperature': 0.2})
+        query = THINK_BLOCK.sub('', query).strip()
+        query = re.sub(r'[*_`#]', '', query.splitlines()[0]).strip(' "\'') if query else ''
+    except Exception:
+        query = ''
+    return (query or question)[:200], question
+
+
+def reply_stream(chat, user_message_id, backend, model, use_web=False, links=False):
+    """Stream one answer to user_message_id as NDJSON, saving it (even a stopped, partial one).
+    Before answering: open #links (for a new message), search the web (when asked), search knowledge."""
     options = chat['options']
-    user_id = g.user['id']
+    user = dict(g.user)
     auto_title = settings.prefs(g.user)['auto_title']
+    user_id = user['id']
 
     def events():
         yield json.dumps({'reply_to': user_message_id}) + '\n'
         text, think, stats, saved, sources = [], [], None, None, []
+        if links:
+            for status in fetch_links(chat['id'], user_message_id, user):
+                yield json.dumps({'status': status}) + '\n'
         if chat['knowledge_ids']:
             yield json.dumps({'status': 'Searching your knowledge...'}) + '\n'
             try:
                 sources = find_sources(chat, user_message_id)
             except Exception as error:
                 yield json.dumps({'status': f"Couldn't search your knowledge: {error}"}) + '\n'
-            if sources:
-                yield json.dumps({'sources': sources}) + '\n'
+        if use_web:
+            yield json.dumps({'status': 'Working out what to search for...'}) + '\n'
+            query, question = search_query(chat, user_message_id, backend, model)
+            statuses = []
+            try:
+                found = web.research(question, query, user['role'] == 'admin', statuses.append)
+                for status in statuses:
+                    yield json.dumps({'status': status}) + '\n'
+                sources += [{**s, 'n': len(sources) + i} for i, s in enumerate(found, 1)]
+                if not found:
+                    yield json.dumps({'status': 'The web search found nothing'}) + '\n'
+            except Exception as error:
+                yield json.dumps({'status': f"Couldn't search the web: {error}"}) + '\n'
+        if sources:
+            yield json.dumps({'sources': sources}) + '\n'
+        yield json.dumps({'status': 'Writing...'}) + '\n'
         history = history_for(chat, user_message_id, sources)
         try:
             for kind, piece in llm.stream_chat(backend, model, history, options):
@@ -255,11 +316,12 @@ def send(chat_id):
     store.update_chat(chat_id, user_id, fields, touch=True)
     chat = store.get_chat(chat_id, user_id)
 
+    use_web = data.get('web') is True
     if reply_to is not None:
         target = store.get_message(chat_id, reply_to)
         if target is None or target['role'] != 'user':
             return jsonify(error='reply_to must be one of your messages in this chat'), 400
-        return reply_stream(chat, reply_to, fields['backend'], fields['model'])
+        return reply_stream(chat, reply_to, fields['backend'], fields['model'], use_web)
 
     if edit is not None:
         original = store.get_message(chat_id, edit)
@@ -273,7 +335,7 @@ def send(chat_id):
             store.update_chat(chat_id, user_id, {'title': ' '.join(content.split())[:60] or first_file[:60]})
         parent = chat['messages'][-1]['id'] if chat['messages'] else None
         message_id = store.add_message(chat_id, parent, 'user', content, attachments=attachments)
-    return reply_stream(store.get_chat(chat_id, user_id), message_id, fields['backend'], fields['model'])
+    return reply_stream(store.get_chat(chat_id, user_id), message_id, fields['backend'], fields['model'], use_web, links=True)
 
 
 @bp.post('/api/chats/<int:chat_id>/branch')
@@ -334,6 +396,11 @@ def upload_file(attachment_id):
     found = store.get_attachment(attachment_id, g.user['id'])
     if found is None:
         return jsonify(error='No such file'), 404
+    if not found['path']:
+        # A page read from a #link: there's no file, only the text that was taken from it.
+        with store.connect() as db:
+            text = db.execute('SELECT text FROM attachments WHERE id = ?', (attachment_id,)).fetchone()['text']
+        return Response(text, mimetype='text/plain; charset=utf-8')
     folder, name = found['path'].split('/', 1)
     return send_from_directory(store.UPLOADS / folder, name, mimetype=found['mime'],
                                as_attachment=found['kind'] != 'image', download_name=found['name'])

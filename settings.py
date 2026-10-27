@@ -15,6 +15,9 @@ DEFAULTS = {
     'embed_backend': 'ollama',
     'embed_model': 'nomic-embed-text',
     'rag_top_k': 5,
+    # Web search: a SearXNG instance with its JSON format switched on, and how many pages to read.
+    'searxng_url': os.environ.get('SEARXNG_URL', 'http://localhost:8080').rstrip('/'),
+    'web_results': 5,
     'image_negative_prompt': IMAGE_NEGATIVE_PROMPT,
     'video_negative_prompt': VIDEO_NEGATIVE_PROMPT,
 }
@@ -99,6 +102,9 @@ def validate(data):
             if not isinstance(value, str) or not value.strip() or len(value) > 300:
                 raise ValueError('Enter the name of an embedding model')
             value = value.strip()
+        elif key == 'web_results':
+            if type(value) is not int or not 1 <= value <= 10:
+                raise ValueError('web_results must be a whole number from 1 to 10')
         elif key == 'rag_top_k':
             if type(value) is not int or not 1 <= value <= 20:
                 raise ValueError('rag_top_k must be a whole number from 1 to 20')

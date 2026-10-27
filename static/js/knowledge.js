@@ -296,11 +296,20 @@ export function sourcesElement(sources) {
     for (const source of sources) {
         const item = document.createElement("li");
         const head = Object.assign(document.createElement("button"), { type: "button", className: "source-head" });
-        head.append(Object.assign(document.createElement("strong"), { textContent: source.document }),
-            Object.assign(document.createElement("small"), { textContent: source.knowledge }));
+        let where = source.knowledge;
+        if (source.kind === "web") {
+            try { where = new URL(source.url).hostname.replace(/^www\./, ""); } catch { where = source.url; }
+        }
+        head.append(Object.assign(document.createElement("strong"), { textContent: source.title || source.document }),
+            Object.assign(document.createElement("small"), { textContent: where }));
         const text = Object.assign(document.createElement("p"), { textContent: source.text, hidden: true });
         head.addEventListener("click", () => { text.hidden = !text.hidden; });
-        item.append(head, text);
+        item.append(head);
+        if (source.kind === "web" && /^https?:\/\//.test(source.url)) {
+            item.append(Object.assign(document.createElement("a"), { className: "source-link", href: source.url, target: "_blank",
+                                                                     rel: "noopener noreferrer", textContent: "open" }));
+        }
+        item.append(text);
         list.append(item);
     }
     details.append(list);

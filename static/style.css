@@ -650,6 +650,10 @@ body.login-page { overflow: auto; display: grid; place-items: center; min-height
 .source-head small { color: var(--text-faint); }
 .sources li p { margin: 4px 0 6px; padding: 8px 10px; border-radius: var(--radius-xs); background: var(--fill-1); white-space: pre-wrap; color: var(--text-dim); max-height: 240px; overflow: auto; }
 .stream-status { color: var(--text-faint); font-size: .86rem; margin: 0 0 6px; }
+.source-link { margin-left: 8px; font-size: .78rem; }
+#webButton[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.connection label.narrow { width: 130px; }
+.connection:has(label.narrow) { grid-template-columns: 1fr auto; }
 
 /* Models page */
 .models-view, .settings-view { overflow-y: auto; padding-bottom: 32px; }

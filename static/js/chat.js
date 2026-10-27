@@ -1,5 +1,5 @@
 import { renderChatKnowledge, sourcesElement } from "./knowledge.js";
-import { $, api, autoGrow, button, copyText, icon, iconButton, request } from "./util.js";
+import { $, api, autoGrow, button, copyText, icon, iconButton, request, storageGet, storageSet } from "./util.js";
 import { state } from "./state.js";
 import { chatKey, pickModel, selectedModel } from "./models.js";
 import { loadChats, renderChatList } from "./chats.js";
@@ -287,7 +287,7 @@ async function runStream(chatId, body, stream, onReplyTo = () => {}) {
         const response = await request(`/api/chats/${chatId}/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...body, backend: stream.backend, model: stream.model }),
+            body: JSON.stringify({ ...body, backend: stream.backend, model: stream.model, web: state.web }),
             signal: stream.controller.signal,
         });
         if (!response.ok) {
@@ -406,6 +406,20 @@ export function fillCompareSelects() {
         if ([...select.options].some(option => option.value === previous)) select.value = previous;
     }
 }
+
+// The globe: search the web for each message while it's on (remembered in this browser).
+function paintWeb() {
+    $("webButton").setAttribute("aria-pressed", String(state.web));
+    $("webButton").title = state.web ? "Web search is on for your messages" : "Search the web for your messages";
+}
+state.web = storageGet("inphai.web") === "on";
+paintWeb();
+$("webButton").addEventListener("click", () => {
+    state.web = !state.web;
+    storageSet("inphai.web", state.web ? "on" : "off");
+    paintWeb();
+    $("prompt").focus();
+});
 
 $("compareButton").addEventListener("click", () => {
     const open = $("comparePanel").hidden;
