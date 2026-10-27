@@ -189,22 +189,28 @@ def test(backend, base):
         return {'ok': False, 'error': describe(backend, error, base)}
 
 
-def stream_chat(backend, model, messages, options=None):
-    """Yield ('think', text), ('text', text) and finally ('stats', {...}) for one reply.
+def stream_chat(backend, model, messages, options=None, tools=None):
+    """Yield ('think', text), ('text', text), ('stats', {...}) and, if the model wants tools run,
+    ('tool_calls', [{'id', 'name', 'arguments'}]) for one reply.
 
-    Each message is {'role', 'content', 'images': [(mime, base64), ...]}.
+    Each message is {'role', 'content', 'images': [(mime, base64), ...]}; an assistant message may
+    carry 'tool_calls', and {'role': 'tool', 'content', 'tool_call_id', 'name'} is a tool's result.
+    tools are OpenAI-style function definitions.
     """
     options = options or {}
     if backend == 'ollama':
-        yield from stream_ollama(model, messages, options)
+        yield from stream_ollama(model, messages, options, tools)
     else:
-        yield from stream_lmstudio(model, messages, options)
+        yield from stream_lmstudio(model, messages, options, tools)
 
 
-def stream_lmstudio(model, messages, options):
+def stream_lmstudio(model, messages, options, tools=None):
     body = {'model': model, 'stream': True, 'stream_options': {'include_usage': True},
             'messages': [openai_message(m) for m in messages],
             **{name: options[name] for name in settings.LMSTUDIO_OPTIONS if name in options}}
+    if tools:
+        body['tools'] = tools
+    calls = {}
     first = tokens = None
     started = time.monotonic()
     # Loading a model into memory can take minutes, so the read timeout is generous.
@@ -224,6 +230,13 @@ def stream_lmstudio(model, messages, options):
                 tokens = chunk['usage'].get('completion_tokens')
             for choice in chunk.get('choices', []):
                 delta = choice.get('delta') or {}
+                # Tool calls arrive in pieces: the name once, the JSON arguments in fragments.
+                for part in delta.get('tool_calls') or []:
+                    call = calls.setdefault(part.get('index', 0), {'id': None, 'name': '', 'arguments': ''})
+                    call['id'] = part.get('id') or call['id']
+                    function = part.get('function') or {}
+                    call['name'] += function.get('name') or ''
+                    call['arguments'] += function.get('arguments') or ''
                 think = delta.get('reasoning_content') or delta.get('reasoning')
                 if (think or delta.get('content')) and first is None:
                     first = time.monotonic()
@@ -235,9 +248,29 @@ def stream_lmstudio(model, messages, options):
         seconds = max(time.monotonic() - first, 1e-3)
         yield 'stats', {'tokens': tokens, 'tokens_per_second': round(tokens / seconds, 1),
                         'seconds': round(time.monotonic() - started, 1)}
+    if calls:
+        yield 'tool_calls', [{'id': call['id'] or f'call_{index}', 'name': call['name'],
+                              'arguments': parse_arguments(call['arguments'])} for index, call in sorted(calls.items())]
+
+
+def parse_arguments(raw):
+    if isinstance(raw, dict):
+        return raw
+    try:
+        value = json.loads(raw or '{}')
+        return value if isinstance(value, dict) else {}
+    except ValueError:
+        return {}
 
 
 def openai_message(message):
+    if message['role'] == 'tool':
+        return {'role': 'tool', 'tool_call_id': message['tool_call_id'], 'content': message['content']}
+    if message.get('tool_calls'):
+        return {'role': 'assistant', 'content': message['content'] or None,
+                'tool_calls': [{'id': call['id'], 'type': 'function',
+                                'function': {'name': call['name'], 'arguments': json.dumps(call['arguments'])}}
+                               for call in message['tool_calls']]}
     if not message.get('images'):
         return {'role': message['role'], 'content': message['content']}
     parts = [{'type': 'text', 'text': message['content']}] if message['content'] else []
@@ -246,12 +279,24 @@ def openai_message(message):
     return {'role': message['role'], 'content': parts}
 
 
-def stream_ollama(model, messages, options):
+def ollama_message(message):
+    if message['role'] == 'tool':
+        return {'role': 'tool', 'content': message['content'], 'tool_name': message['name']}
+    converted = {'role': message['role'], 'content': message['content']}
+    if message.get('images'):
+        converted['images'] = [data for _, data in message['images']]
+    if message.get('tool_calls'):
+        converted['tool_calls'] = [{'function': {'name': call['name'], 'arguments': call['arguments']}}
+                                   for call in message['tool_calls']]
+    return converted
+
+
+def stream_ollama(model, messages, options, tools=None):
     # Ollama's own API, because its /v1 endpoint ignores most options (num_ctx above all).
-    body = {'model': model, 'stream': True,
-            'messages': [{'role': m['role'], 'content': m['content'],
-                          **({'images': [data for _, data in m['images']]} if m.get('images') else {})}
-                         for m in messages]}
+    body = {'model': model, 'stream': True, 'messages': [ollama_message(m) for m in messages]}
+    if tools:
+        body['tools'] = tools
+    calls = []
     model_options = {('num_predict' if name == 'max_tokens' else name): value for name, value in options.items()
                      if name not in ('keep_alive', 'think')}
     if model_options:
@@ -270,6 +315,10 @@ def stream_ollama(model, messages, options):
             if chunk.get('error'):
                 raise RuntimeError(chunk['error'])
             message = chunk.get('message') or {}
+            for call in message.get('tool_calls') or []:
+                function = call.get('function') or {}
+                calls.append({'id': f'call_{len(calls)}', 'name': function.get('name', ''),
+                              'arguments': parse_arguments(function.get('arguments'))})
             if message.get('thinking'):
                 yield 'think', message['thinking']
             if message.get('content'):
@@ -280,6 +329,8 @@ def stream_ollama(model, messages, options):
                     yield 'stats', {'tokens': tokens, 'tokens_per_second': round(tokens / (duration / 1e9), 1),
                                     'prompt_tokens': chunk.get('prompt_eval_count'),
                                     'seconds': round(time.monotonic() - started, 1)}
+                if calls:
+                    yield 'tool_calls', calls
                 return
 
 

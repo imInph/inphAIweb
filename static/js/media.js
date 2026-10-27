@@ -1,3 +1,4 @@
+import { renderMessages } from "./chat.js";
 import { $, api, autoGrow, button, timeAgo } from "./util.js";
 import { state } from "./state.js";
 
@@ -184,9 +185,12 @@ export async function pollJob() {
         state.jobs = result.jobs;
         state.busy = result.busy;
         renderJob();
-        // A job that just finished puts its file in the gallery.
-        for (const kind of new Set(result.jobs.filter(job => job.state === "done" && before.get(job.id) !== "done").map(job => job.kind))) {
-            loadGallery(kind);
+        // A job that just finished puts its file in the gallery (and in the chat that asked for it).
+        const finished = result.jobs.filter(job => job.state === "done" && before.get(job.id) !== "done");
+        for (const kind of new Set(finished.map(job => job.kind))) loadGallery(kind);
+        if (state.chat && !state.live && finished.some(job => job.chat_id === state.chat.id)) {
+            state.chat = await api(`/api/chats/${state.chat.id}`);
+            renderMessages();
         }
     } catch (error) {
         console.log("Could not check the jobs:", error);

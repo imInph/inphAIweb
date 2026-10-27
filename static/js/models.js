@@ -1,7 +1,7 @@
 import { renderChatKnowledge } from "./knowledge.js";
 import { $, api, storageGet, storageSet } from "./util.js";
 import { state } from "./state.js";
-import { fillCompareSelects, renderMessages } from "./chat.js";
+import { fillCompareSelects, paintTools, renderMessages } from "./chat.js";
 import { paintChatOptions } from "./options.js";
 import { showSaved } from "./settings.js";
 import { renderPending } from "./attachments.js";
@@ -103,4 +103,5 @@ $("model").addEventListener("change", async () => {
     paintChatOptions();
     renderPending();
     renderChatKnowledge();
+    paintTools();
 });

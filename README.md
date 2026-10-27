@@ -93,6 +93,14 @@ Then switch on its JSON output: in `~/searxng/settings.yml` find `search:` → `
 are admin settings (Settings → Web search). Only admins can make the server open pages on your own
 network (so nobody can point it at your router or the LLM servers).
 
+## Tools
+
+For models that can call tools (the Models page marks them "uses tools"), the wrench in the
+composer lets the model decide on its own to search the web, open a page, search your documents,
+calculate, check the date and time, or draw an image (queued on the GPU and attached to the reply
+when done). Up to five rounds of tools per reply; each step is listed above the answer. Only these
+built-in tools exist: nothing a user writes runs on the server.
+
 ## Models page
 
 Shows what Ollama has installed (size, quantisation, and whether a model sees images, thinks or

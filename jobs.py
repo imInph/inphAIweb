@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import shutil
+import uuid
 import llm
 import settings
 import store
@@ -75,11 +77,32 @@ def check_environment(kind):
         raise FileNotFoundError(f'No {kind} environment at {PYTHON[kind]}; run bash scripts/setup.sh {kind}')
 
 
-def enqueue(user_id, kind, params):
+def enqueue(user_id, kind, params, chat_id=None, message_id=None):
+    """Queue a job. With chat_id and message_id, the finished file is attached to that chat message."""
     check_environment(kind)
-    job_id = store.add_job(user_id, kind, params)
+    job_id = store.add_job(user_id, kind, params, chat_id, message_id)
     wake.set()
     return job_id
+
+
+def post_to_chat(job_id):
+    """Attach a finished job's file to the chat message it was made for (once both exist)."""
+    job = store.get_job(job_id)
+    if not job or job['state'] != 'done' or not job['message_id'] or not job['media_id']:
+        return
+    media = store.get_media(job['media_id'], job['user_id'])
+    message = store.get_message(job['chat_id'], job['message_id']) if job['chat_id'] else None
+    source = OUTPUTS / media['file'] if media else None
+    if not message or not source or not source.is_file():
+        return
+    attachment_id = uuid.uuid4().hex
+    folder = store.UPLOADS / attachment_id
+    folder.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, folder / source.name)
+    mime = 'image/png' if source.suffix == '.png' else 'video/mp4'
+    store.add_attachment(job['user_id'], attachment_id, 'image' if job['kind'] == 'image' else 'video', source.name, mime,
+                         source.stat().st_size, f'{attachment_id}/{source.name}', message_id=job['message_id'])
+    store.set_job_message(job_id, None)   # attached: don't do it twice
 
 
 def describe(job):
@@ -216,6 +239,8 @@ def run(job):
         store.update_job(job['id'], {**result, 'completed_steps': live.get('completed_steps', 0),
                                      'total_steps': live.get('total_steps', 0), 'finished_at': time.time()})
         live.clear()
+        if result.get('state') == 'done':
+            post_to_chat(job['id'])
 
 
 def worker():

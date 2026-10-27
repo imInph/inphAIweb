@@ -9,14 +9,17 @@ import uuid
 import zipfile
 from flask import Blueprint, Response, g, jsonify, request, send_file, send_from_directory, stream_with_context
 import llm
+import jobs
 import knowledge
 import settings
 import store
+import tools
 import uploads
 import web
 
 bp = Blueprint('chat', __name__)
 THINK_BLOCK = re.compile(r'<think>.*?(</think>|$)', re.S)
+MAX_TOOL_ROUNDS = 5
 
 
 def chat_fields(data, partial=True):
@@ -33,7 +36,7 @@ def chat_fields(data, partial=True):
         fields['system_prompt'] = data['system_prompt']
     if 'options' in data:
         fields['options'] = settings.validate_options(data['options'])
-    for flag in ('pinned', 'archived'):
+    for flag in ('pinned', 'archived', 'tools'):
         if flag in data:
             if type(data[flag]) is not bool:
                 raise ValueError(f'{flag} must be true or false')
@@ -261,15 +264,45 @@ def reply_stream(chat, user_message_id, backend, model, use_web=False, links=Fal
             yield json.dumps({'sources': sources}) + '\n'
         yield json.dumps({'status': 'Writing...'}) + '\n'
         history = history_for(chat, user_message_id, sources)
+        context = {'user': user, 'chat': chat, 'sources': sources, 'message_id': None, 'jobs': []}
+        steps = []
         try:
-            for kind, piece in llm.stream_chat(backend, model, history, options):
-                if kind == 'stats':
-                    stats = piece
-                else:
-                    (think if kind == 'think' else text).append(piece)
-                yield json.dumps({kind: piece}) + '\n'
-            saved = store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text), ''.join(think), model,
-                                      stats, sources=sources)
+            # Each round: the model answers, or asks for tools; their results go back for another round.
+            for round_number in range(MAX_TOOL_ROUNDS + 1):
+                offered = tools.openai_tools() if chat['tools'] and round_number < MAX_TOOL_ROUNDS else None
+                calls, round_text = [], []
+                for kind, piece in llm.stream_chat(backend, model, history, options, offered):
+                    if kind == 'tool_calls':
+                        calls = piece
+                        continue
+                    if kind == 'stats':
+                        stats = piece
+                    else:
+                        (think if kind == 'think' else text).append(piece)
+                        if kind == 'text':
+                            round_text.append(piece)
+                    yield json.dumps({kind: piece}) + '\n'
+                if not calls:
+                    break
+                history.append({'role': 'assistant', 'content': ''.join(round_text), 'tool_calls': calls})
+                before = len(sources)
+                for call in calls:
+                    yield json.dumps({'tool': {'name': call['name'], 'arguments': call['arguments']}}) + '\n'
+                    result, summary = tools.run(call['name'], call['arguments'], context)
+                    steps.append({'name': call['name'], 'arguments': call['arguments'], 'summary': summary,
+                                  'result': result[:4000]})
+                    yield json.dumps({'tool_done': steps[-1]}) + '\n'
+                    history.append({'role': 'tool', 'content': result, 'tool_call_id': call['id'], 'name': call['name']})
+                if len(sources) > before:
+                    yield json.dumps({'sources': sources}) + '\n'
+                if text:
+                    text.append('\n\n')
+            saved = store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text).strip(), ''.join(think), model,
+                                      stats, sources=sources, tools=steps)
+            for job_id in context['jobs']:
+                # An image the model asked for is attached to this reply when it's done.
+                store.set_job_message(job_id, saved)
+                jobs.post_to_chat(job_id)
             yield json.dumps({'done': True, 'message_id': saved}) + '\n'
             if auto_title and store.message_count(chat['id']) == 2:
                 threading.Thread(target=write_title, args=(chat['id'], user_id, backend, model), daemon=True).start()
@@ -277,9 +310,9 @@ def reply_stream(chat, user_message_id, backend, model, use_web=False, links=Fal
             yield json.dumps({'error': llm.describe(backend, error)}) + '\n'
         finally:
             # Runs on Stop too (the client disconnects), so a partial reply is kept.
-            if saved is None and (text or think):
-                store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text), ''.join(think), model, stats,
-                                  sources=sources)
+            if saved is None and (text or think or steps):
+                store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text).strip(), ''.join(think), model,
+                                  stats, sources=sources, tools=steps)
 
     return Response(stream_with_context(events()), mimetype='application/x-ndjson',
                     headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})

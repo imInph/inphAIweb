@@ -1,3 +1,5 @@
+import { modelCapabilities } from "./options.js";
+import { pollJob } from "./media.js";
 import { renderChatKnowledge, sourcesElement } from "./knowledge.js";
 import { $, api, autoGrow, button, copyText, icon, iconButton, request, storageGet, storageSet } from "./util.js";
 import { state } from "./state.js";
@@ -40,6 +42,7 @@ export async function openChat(chatId) {
     const settings = state.chat || state.draft;
     $("systemPrompt").value = settings.system_prompt;
     paintChatOptions();
+    paintTools();
     renderMessages();
     renderChatList();
     renderChatKnowledge();
@@ -99,7 +102,8 @@ function filesElement(files) {
 const rendered = new Map();
 
 function replyBody(message, streaming) {
-    const key = !streaming && message.id > 0 ? `${message.id}\n${message.content}\n${message.thinking}` : null;
+    const key = !streaming && message.id > 0
+        ? `${message.id}\n${message.content}\n${message.thinking}\n${(message.attachments || []).length}` : null;
     if (key && rendered.has(key)) return rendered.get(key);
     const parts = [];
     const { thinking, content } = splitThinking(message);
@@ -110,16 +114,37 @@ function replyBody(message, streaming) {
         parts.push(details);
     }
     const reply = Object.assign(document.createElement("div"), { className: "reply" });
+    if (message.tools && message.tools.length) parts.push(toolSteps(message.tools, streaming));
     reply.innerHTML = renderMarkdown(content);
     if (streaming) reply.classList.add("cursor");
     else enhance(reply);
     parts.push(reply);
+    if (!streaming && message.attachments && message.attachments.length) parts.push(filesElement(message.attachments));
     if (message.sources && message.sources.length) parts.push(sourcesElement(message.sources));
     if (key) {
         if (rendered.size > 500) rendered.clear();
         rendered.set(key, parts);
     }
     return parts;
+}
+
+const TOOL_NAMES = { web_search: "Searched the web", open_url: "Opened a page", search_knowledge: "Searched your documents",
+                     calculator: "Calculated", current_datetime: "Checked the date and time", generate_image: "Asked for an image" };
+
+function toolSteps(steps, streaming) {
+    const details = Object.assign(document.createElement("details"), { className: "tool-steps", open: streaming });
+    details.append(Object.assign(document.createElement("summary"), { textContent: `Used ${steps.length} tool${steps.length === 1 ? "" : "s"}` }));
+    const list = document.createElement("ul");
+    for (const step of steps) {
+        const item = document.createElement("li");
+        const args = Object.values(step.arguments || {}).map(String).join(", ");
+        item.append(Object.assign(document.createElement("strong"), { textContent: TOOL_NAMES[step.name] || step.name }),
+            Object.assign(document.createElement("span"), { textContent: args ? ` (${args})` : "" }),
+            Object.assign(document.createElement("small"), { textContent: step.summary ? ` · ${step.summary}` : step.pending ? " · working..." : "" }));
+        list.append(item);
+    }
+    details.append(list);
+    return details;
 }
 
 function statsText(message) {
@@ -276,6 +301,16 @@ async function readStream(response, stream, onReplyTo) {
             if (event.error) stream.error = event.error;
             if (event.message_id) stream.messageId = event.message_id;
             if (event.status) stream.status = event.status;
+            if (event.tool) {
+                stream.message.tools = [...(stream.message.tools || []), { ...event.tool, pending: true }];
+                stream.status = `${TOOL_NAMES[event.tool.name] || event.tool.name}...`;
+            }
+            if (event.tool_done) {
+                const steps = stream.message.tools || [];
+                const index = steps.findIndex(step => step.pending && step.name === event.tool_done.name);
+                if (index >= 0) steps[index] = event.tool_done;
+                if (event.tool_done.name === "generate_image") stream.queuedJob = true;
+            }
             if (event.sources) stream.message.sources = event.sources;
         }
         schedule();
@@ -324,7 +359,7 @@ export async function send({ content = "", files = [], edit = null, replyTo = nu
             method: "POST",
             body: { backend: picked.backend, model: picked.model, persona_id: picked.persona ? picked.persona.id : null,
                     system_prompt: $("systemPrompt").value, options: state.draft.options || {},
-                    knowledge_ids: state.draft.knowledge_ids || [] },
+                    knowledge_ids: state.draft.knowledge_ids || [], tools: Boolean(state.draft.tools) },
         });
         history.replaceState(null, "", `#chat/${state.chat.id}`);
     }
@@ -377,6 +412,7 @@ export async function send({ content = "", files = [], edit = null, replyTo = nu
         $("messages").scrollTop = $("messages").scrollHeight;
     }
     loadChats();
+    if (live.streams.some(stream => stream.queuedJob)) pollJob();
     // The model writes a title after the first reply; pick it up when it's there.
     if (state.chat.messages.length === 2 && state.me && state.me.prefs.auto_title) {
         setTimeout(loadChats, 3000);
@@ -419,6 +455,31 @@ $("webButton").addEventListener("click", () => {
     storageSet("inphai.web", state.web ? "on" : "off");
     paintWeb();
     $("prompt").focus();
+});
+
+// The wrench: let the model call tools in this chat (shown for models that can).
+export function paintTools() {
+    const capabilities = modelCapabilities(selectedModel());
+    const button = $("toolsButton");
+    button.hidden = Boolean(capabilities && !capabilities.includes("tools"));
+    const on = Boolean(state.chat ? state.chat.tools : state.draft.tools);
+    button.setAttribute("aria-pressed", String(on && !button.hidden));
+    button.title = capabilities ? (on ? "Tools are on for this chat" : "Let the model use tools: web search, calculator, images...")
+        : "Let the model use tools (this server doesn't say whether the model can)";
+}
+
+$("toolsButton").addEventListener("click", async () => {
+    const tools = !(state.chat ? state.chat.tools : state.draft.tools);
+    if (state.chat) {
+        try {
+            state.chat.tools = (await api(`/api/chats/${state.chat.id}`, { method: "PATCH", body: { tools } })).tools;
+        } catch (error) {
+            alert(error.message);
+        }
+    } else {
+        state.draft.tools = tools;
+    }
+    paintTools();
 });
 
 $("compareButton").addEventListener("click", () => {

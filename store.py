@@ -242,11 +242,19 @@ END;''')
     db.execute("UPDATE documents SET status = 'queued' WHERE status = 'indexing'")
 
 
+def migrate_7(db):
+    """Tools: a switch per chat, the calls a reply made, and GPU jobs that post their result into a chat."""
+    add_column(db, 'chats', 'tools', 'INTEGER NOT NULL DEFAULT 0')
+    add_column(db, 'messages', 'tools', 'TEXT')
+    add_column(db, 'jobs', 'chat_id', 'INTEGER')
+    add_column(db, 'jobs', 'message_id', 'INTEGER')
+
+
 # Applied in order; PRAGMA user_version records how many have run. Append, never edit or reorder.
 # Each must be safe to run twice: executescript commits as it goes, so a crash can leave one half done.
-MIGRATIONS = [migrate_1, migrate_2, migrate_3, migrate_4, migrate_5, migrate_6]
+MIGRATIONS = [migrate_1, migrate_2, migrate_3, migrate_4, migrate_5, migrate_6, migrate_7]
 CHAT_FIELDS = ('title', 'backend', 'model', 'system_prompt', 'options', 'pinned', 'archived', 'folder_id', 'persona_id',
-               'knowledge_ids')
+               'knowledge_ids', 'tools')
 USER_FIELDS = ('username', 'password_hash', 'role', 'disabled')
 
 
@@ -602,8 +610,8 @@ def get_chat(chat_id, user_id):
         chat = db.execute('SELECT * FROM chats WHERE id = ? AND user_id = ?', (chat_id, user_id)).fetchone()
         if chat is None:
             return None
-        rows = db.execute('SELECT id, parent_id, role, content, thinking, model, stats, sources, created_at FROM messages '
-                          'WHERE chat_id = ? ORDER BY id', (chat_id,)).fetchall()
+        rows = db.execute('SELECT id, parent_id, role, content, thinking, model, stats, sources, tools, created_at '
+                          'FROM messages WHERE chat_id = ? ORDER BY id', (chat_id,)).fetchall()
         path = branch(rows, chat['leaf_id'])
         children = {}
         for row in rows:
@@ -613,6 +621,7 @@ def get_chat(chat_id, user_id):
             siblings = children[row['parent_id']]
             messages.append({**dict(row), 'stats': json.loads(row['stats']) if row['stats'] else None,
                              'sources': json.loads(row['sources']) if row['sources'] else None,
+                             'tools': json.loads(row['tools']) if row['tools'] else None,
                              'attachments': [], 'siblings': siblings, 'sibling_index': siblings.index(row['id'])})
         by_id = {message['id']: message for message in messages}
         for row in db.execute('SELECT a.* FROM attachments a JOIN messages m ON m.id = a.message_id '
@@ -622,7 +631,7 @@ def get_chat(chat_id, user_id):
         chat = dict(chat)
         chat.pop('temperature', None)
         return {**chat, 'options': json.loads(chat['options']), 'knowledge_ids': json.loads(chat['knowledge_ids']),
-                'messages': messages}
+                'tools': bool(chat['tools']), 'messages': messages}
 
 
 def branch(rows, leaf_id):
@@ -730,14 +739,15 @@ def delete_all_chats(user_id):
     return deleted
 
 
-def add_message(chat_id, parent_id, role, content, thinking='', model=None, stats=None, attachments=(), sources=None):
+def add_message(chat_id, parent_id, role, content, thinking='', model=None, stats=None, attachments=(), sources=None,
+                tools=None):
     """Add a message under parent_id and show its branch. chat_id must already be checked against its owner."""
     now = time.time()
     with connect() as db:
         cursor = db.execute('INSERT INTO messages (chat_id, parent_id, role, content, thinking, model, stats, sources, '
-                            'created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            'tools, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                             (chat_id, parent_id, role, content, thinking, model, json.dumps(stats) if stats else None,
-                             json.dumps(sources) if sources else None, now))
+                             json.dumps(sources) if sources else None, json.dumps(tools) if tools else None, now))
         db.executemany('UPDATE attachments SET message_id = ? WHERE id = ? AND message_id IS NULL',
                        [(cursor.lastrowid, attachment) for attachment in attachments])
         db.execute('UPDATE chats SET updated_at = ?, leaf_id = ? WHERE id = ?', (now, cursor.lastrowid, chat_id))
@@ -875,10 +885,16 @@ def job_row(row):
     return {**dict(row), 'settings': json.loads(row['settings'])} if row else None
 
 
-def add_job(user_id, kind, settings):
+def add_job(user_id, kind, settings, chat_id=None, message_id=None):
     with connect() as db:
-        return db.execute('INSERT INTO jobs (user_id, kind, settings, total_steps, created_at) VALUES (?, ?, ?, ?, ?)',
-                          (user_id, kind, json.dumps(settings), settings.get('steps', 0), time.time())).lastrowid
+        return db.execute('INSERT INTO jobs (user_id, kind, settings, total_steps, chat_id, message_id, created_at) '
+                          'VALUES (?, ?, ?, ?, ?, ?, ?)', (user_id, kind, json.dumps(settings), settings.get('steps', 0),
+                                                           chat_id, message_id, time.time())).lastrowid
+
+
+def set_job_message(job_id, message_id):
+    with connect() as db:
+        db.execute('UPDATE jobs SET message_id = ? WHERE id = ?', (message_id, job_id))
 
 
 def get_job(job_id):

@@ -650,6 +650,12 @@ body.login-page { overflow: auto; display: grid; place-items: center; min-height
 .source-head small { color: var(--text-faint); }
 .sources li p { margin: 4px 0 6px; padding: 8px 10px; border-radius: var(--radius-xs); background: var(--fill-1); white-space: pre-wrap; color: var(--text-dim); max-height: 240px; overflow: auto; }
 .stream-status { color: var(--text-faint); font-size: .86rem; margin: 0 0 6px; }
+.tool-steps { margin-bottom: 10px; font-size: .84rem; color: var(--text-dim); }
+.tool-steps summary { cursor: pointer; color: var(--text-faint); font-weight: 560; width: fit-content; }
+.tool-steps ul { margin: 6px 0 0; padding-left: 1.2em; }
+.tool-steps small { color: var(--text-faint); }
+.message.assistant .message-files { justify-content: flex-start; margin: 10px 0 0; }
+#toolsButton[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .source-link { margin-left: 8px; font-size: .78rem; }
 #webButton[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .connection label.narrow { width: 130px; }
