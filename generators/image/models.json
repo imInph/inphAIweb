@@ -12,5 +12,9 @@
   "realistic": {
     "repo": "Tongyi-MAI/Z-Image-Turbo",
     "revision": "f332072aa78be7aecdf3ee76d5c247082da564a6"
+  },
+  "ip_adapter": {
+    "repo": "h94/IP-Adapter",
+    "revision": "018e402774aeeddd60609b4ecdb7e298259dc729"
   }
 }
