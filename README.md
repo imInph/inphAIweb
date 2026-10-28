@@ -9,11 +9,81 @@ show up in each tab's gallery. The `data/` folder is ignored by Git.
 
 ## Setup
 
-Install [uv](https://docs.astral.sh/uv/) if needed:
+You need Linux on x86_64 for images and videos, with an AMD GPU that ROCm can use. Chat works
+on anything that runs Python.
+
+### 1. System packages
+
+The AMD driver (`amdgpu`) comes with the Linux kernel, so there's nothing to install for it.
+PyTorch brings its own ROCm libraries. What's left is `git`, `curl`, `rocminfo` (used to
+detect your GPU) and [uv](https://docs.astral.sh/uv/), plus permission to use the GPU. Pick your
+distro:
+
+<details>
+<summary><b>Arch-based</b> (Arch, EndeavourOS, CachyOS, Manjaro)</summary>
 
 ```sh
+sudo pacman -S --needed git curl rocminfo uv
+sudo usermod -aG render,video "$USER"
+```
+
+</details>
+
+<details>
+<summary><b>Debian-based</b> (Debian 12+, Ubuntu 24.04+, Linux Mint, Pop!_OS)</summary>
+
+```sh
+sudo apt update
+sudo apt install git curl rocminfo
 curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
+sudo usermod -aG render,video "$USER"
+```
+
+</details>
+
+<details>
+<summary><b>Red Hat-based</b> (Fedora, RHEL, Rocky, Alma)</summary>
+
+```sh
+sudo dnf install git curl rocminfo
+curl -LsSf https://astral.sh/uv/install.sh | sh
+sudo usermod -aG render,video "$USER"
+```
+
+On RHEL, Rocky and Alma, `rocminfo` comes from
+[AMD's ROCm repository](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/). Add it
+first, or skip `rocminfo` and pick the GPU override yourself (see
+[Other ROCm GPUs](#other-rocm-gpus)).
+
+</details>
+
+<details>
+<summary><b>Other</b></summary>
+
+Install these with your package manager:
+
+- `git` and `curl`
+- `rocminfo`. If your distro doesn't have it, skip it and pick the GPU override yourself (see
+  [Other ROCm GPUs](#other-rocm-gpus)).
+- uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+Then let your user use the GPU: `sudo usermod -aG render,video "$USER"`.
+
+</details>
+
+**Log out and back in** (or reboot) after `usermod`, so the new groups apply. To check:
+`rocminfo | grep gfx` should list your GPU (for example `gfx1031`), and `groups` should include
+`render` and `video`. If `uv` isn't found, run `export PATH="$HOME/.local/bin:$PATH"` or open a
+new terminal.
+
+For chat you also need [Ollama](https://ollama.com/download) or
+[LM Studio](https://lmstudio.ai/) (see [LLM servers](#llm-servers)).
+
+### 2. Get the code and set it up
+
+```sh
+git clone https://github.com/imInph/inphAIweb.git
+cd inphAIweb
 ```
 
 Then set up the parts you want:
