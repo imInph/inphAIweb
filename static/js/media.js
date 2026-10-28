@@ -139,6 +139,9 @@ export function jobMessage(job) {
 }
 
 const active = job => job.state === "queued" || job.state === "running";
+// Jobs whose Output is open, so it survives each re-render: job id -> scrollTop, or null to
+// keep following the end of the log.
+const openOutputs = new Map();
 
 function cancelJob(job) {
     api(`/api/jobs/${job.id}/cancel`, { method: "POST" }).catch(error => alert(error.message)).then(pollJob);
@@ -155,9 +158,22 @@ function jobRow(job) {
     row.append(head);
     if (job.state === "running") row.append(progressBar(job));
     if (job.output && job.output.length) {
-        const details = document.createElement("details");
-        details.append(Object.assign(document.createElement("summary"), { textContent: "Output" }),
-            Object.assign(document.createElement("pre"), { textContent: job.output.join("\n") }));
+        const details = Object.assign(document.createElement("details"), { open: openOutputs.has(job.id) });
+        const pre = Object.assign(document.createElement("pre"), { textContent: job.output.join("\n") });
+        details.dataset.job = job.id;
+        details.append(Object.assign(document.createElement("summary"), { textContent: "Output" }), pre);
+        details.addEventListener("toggle", () => {
+            if (!details.open) openOutputs.delete(job.id);
+            else if (!openOutputs.has(job.id)) {
+                openOutputs.set(job.id, null);
+                pre.scrollTop = pre.scrollHeight;
+            }
+        });
+        pre.addEventListener("scroll", () => {
+            if (!details.open) return;
+            const atEnd = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 4;
+            openOutputs.set(job.id, atEnd ? null : pre.scrollTop);
+        });
         row.append(details);
     }
     return row;
@@ -180,6 +196,9 @@ export function renderJob() {
         parts.push(...jobs.map(jobRow));
         box.hidden = !parts.length;
         box.replaceChildren(...parts);
+        box.querySelectorAll("details[open] pre").forEach(pre => {
+            pre.scrollTop = openOutputs.get(Number(pre.parentElement.dataset.job)) ?? pre.scrollHeight;
+        });
     }
 
     const pill = $("jobPill");
