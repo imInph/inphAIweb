@@ -46,6 +46,56 @@ cancelled = False
 wake = threading.Event()
 STEP_BAR = re.compile(r'(\d+)/(\d+) \[')
 
+# Chat replies and generators take turns on the GPU, since 12 GB doesn't hold both: a job waits
+# for the replies being written to finish, and new replies wait while a job runs.
+gpu = threading.Condition()
+replies = 0                      # chat replies using a model right now
+gpu_job = None                   # kind of the job that has the GPU, or is waiting for it
+REPLY_WAIT_LIMIT = 600           # a job doesn't wait longer than this for replies
+
+
+def wait_for_gpu():
+    """For a chat reply. Yields the kind of job it's waiting on every couple of seconds (so a
+    stopped reply is noticed), then counts the reply as using the GPU: call reply_done() after."""
+    global replies
+    first = True
+    while True:
+        with gpu:
+            gpu.wait_for(lambda: gpu_job is None, timeout=0 if first else 2)
+            if gpu_job is None:
+                replies += 1
+                return
+            kind = gpu_job
+        first = False
+        yield kind
+
+
+def reply_done():
+    global replies
+    with gpu:
+        replies -= 1
+        gpu.notify_all()
+
+
+def take_gpu(job):
+    """For the worker: stop new replies, then wait for the ones being written."""
+    global gpu_job
+    with gpu:
+        gpu_job = job['kind']
+        busy = replies > 0
+    if busy:
+        live['stage'] = 'waiting_for_chat'
+        store.update_job(job['id'], {'stage': 'waiting_for_chat'})
+        with gpu:
+            gpu.wait_for(lambda: replies == 0, timeout=REPLY_WAIT_LIMIT)
+
+
+def free_gpu():
+    global gpu_job
+    with gpu:
+        gpu_job = None
+        gpu.notify_all()
+
 
 def validate_image(data, user_id=None):
     """Image settings for the queue. A reference must be one this person saved with
@@ -167,9 +217,11 @@ def cancel(job_id, user):
         return False
     if job['state'] == 'queued':
         return store.cancel_queued_job(job_id)
-    if job['state'] == 'running' and process is not None and live.get('id') == job_id:
+    if job['state'] == 'running' and live.get('id') == job_id:
+        # Before its generator starts (waiting for a chat reply, say), the flag alone stops it.
         cancelled = True
-        process.terminate()
+        if process is not None:
+            process.terminate()
         return True
     return False
 
@@ -231,11 +283,15 @@ def run(job):
     store.update_job(job['id'], {'state': 'running', 'stage': 'starting', 'started_at': time.time()})
     result = {}
     try:
+        take_gpu(job)
         freed = llm.unload_ollama() if settings.get('unload_ollama') else []
         if freed:
             lines.append('Unloaded from Ollama to free the GPU: ' + ', '.join(freed))
         check_environment(kind)
         command, log_path, find_output = command_for(kind, params)
+        if cancelled:
+            result = {'state': 'cancelled', 'stage': 'cancelled'}
+            return
         start_time = time.monotonic()
         with log_path.open('w', buffering=1) as log:
             # Text mode splits on \r too, so each progress bar update arrives as a line.
@@ -273,6 +329,7 @@ def run(job):
         result = {'state': 'error', 'stage': 'error', 'error': str(error)}
     finally:
         process = None
+        free_gpu()
         store.update_job(job['id'], {**result, 'completed_steps': live.get('completed_steps', 0),
                                      'total_steps': live.get('total_steps', 0), 'finished_at': time.time()})
         live.clear()

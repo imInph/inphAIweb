@@ -173,11 +173,15 @@ def write_title(chat_id, user_id, backend, model):
     reply = THINK_BLOCK.sub('', exchange[1]['content']).strip()[:2000]
     prompt = ('Write a title of 3 to 6 words for this conversation. Answer with the title only: '
               'no quotes, no full stop.\n\nUser: ' + first + '\n\nAssistant: ' + reply)
+    for _ in jobs.wait_for_gpu():
+        pass
     try:
         title = llm.complete(backend, model, [{'role': 'user', 'content': prompt}], {'max_tokens': 40, 'temperature': 0.3})
     except Exception as error:
         print(f'Could not write a title for chat {chat_id}: {error}', flush=True)
         return
+    finally:
+        jobs.reply_done()
     title = THINK_BLOCK.sub('', title).strip()
     # The first line, without Markdown marks or quotes around it.
     title = re.sub(r'[*_`#]', '', title.splitlines()[0]).strip(' "\'.:') if title else ''
@@ -314,7 +318,21 @@ def reply_stream(chat, user_message_id, backend, model, use_web=False, links=Fal
                 store.add_message(chat['id'], user_message_id, 'assistant', ''.join(text).strip(), ''.join(think), model,
                                   stats, sources=sources, tools=steps)
 
-    return Response(stream_with_context(events()), mimetype='application/x-ndjson',
+    def taking_turns():
+        """events(), once no image or video job needs the GPU (12 GB doesn't hold both)."""
+        stream = events()
+        try:
+            yield next(stream)   # reply_to first, so the page knows which message this answers
+            for kind in jobs.wait_for_gpu():
+                yield json.dumps({'status': f'Waiting for the {kind} to finish...'}) + '\n'
+            try:
+                yield from stream
+            finally:
+                jobs.reply_done()
+        finally:
+            stream.close()
+
+    return Response(stream_with_context(taking_turns()), mimetype='application/x-ndjson',
                     headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
 

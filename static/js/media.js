@@ -5,6 +5,7 @@ import { state } from "./state.js";
 
 export const STAGES = {
     starting: "Starting...",
+    waiting_for_chat: "Waiting for a chat reply to finish...",
     loading_model: "Loading model...",
     generating: "Generating...",
     decoding: "Decoding...",
