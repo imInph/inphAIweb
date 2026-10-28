@@ -302,6 +302,8 @@ mark { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inhe
     border-radius: var(--radius-pill); padding: 8px 36px 8px 16px; font-weight: 600;
 }
 .backend-note { font-size: .8rem; color: var(--text-faint); }
+.chat-bar-note:empty { display: none; }
+.chat-bar .chat-bar-note { align-self: center; }
 
 .settings-card { display: flex; flex-direction: column; gap: 12px; padding: 14px; max-height: 55vh; overflow-y: auto; flex: none; }
 .settings-card textarea { min-height: 72px; }
@@ -794,7 +796,7 @@ dialog.image-viewer img {
     .settings-card { max-height: 42dvh; }
     .compare { grid-template-columns: 1fr; }
     .knowledge-layout { grid-template-columns: 1fr; }
-    .backend-note { flex-basis: 100%; }
+    .backend-note, .chat-bar-note { flex-basis: 100%; }
     .message.user .bubble { max-width: 92%; }
     .chat-list li .btn { visibility: visible; }
     .field-row > label { flex: 1 1 calc(50% - 6px); }

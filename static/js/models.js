@@ -63,6 +63,7 @@ export function renderModelSelect() {
 export function pickModel(key) {
     const select = $("model");
     if (key && [...select.options].some(option => option.value === key)) select.value = key;
+    paintUnload();
 }
 
 /** { backend, model } to send to, plus the persona when one is picked. */
@@ -74,6 +75,25 @@ export function selectedModel() {
     }
     return kind && id ? { backend: kind, model: id } : null;
 }
+
+/** Ollama models can be unloaded on demand; LM Studio can't be over HTTP. */
+function paintUnload() {
+    const picked = selectedModel();
+    $("unloadModel").hidden = !picked || picked.backend !== "ollama";
+}
+
+$("unloadModel").addEventListener("click", async () => {
+    const picked = selectedModel();
+    if (!picked) return;
+    $("unloadModel").disabled = true;
+    try {
+        await api("/api/catalog/ollama/unload", { method: "POST", body: { name: picked.model } });
+        showSaved("chatBar", "Unloaded");
+    } catch (error) {
+        showSaved("chatBar", error.message, true);
+    }
+    $("unloadModel").disabled = false;
+});
 
 $("refreshModels").addEventListener("click", loadModels);
 $("model").addEventListener("change", async () => {
@@ -100,6 +120,7 @@ $("model").addEventListener("change", async () => {
             showSaved("chatOptions", error.message, true);
         }
     }
+    paintUnload();
     paintChatOptions();
     renderPending();
     renderChatKnowledge();
