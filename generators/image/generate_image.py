@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import time
 
-os.environ.setdefault('HSA_OVERRIDE_GFX_VERSION', '10.3.0')
 os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 os.environ.setdefault('MIOPEN_FIND_MODE', 'FAST')
 ROOT = Path(__file__).resolve().parent

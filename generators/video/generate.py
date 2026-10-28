@@ -1,7 +1,6 @@
 """Generate Wan2.2 latents on AMD GPU, save them, then decode on CPU."""
 import os
 
-os.environ.setdefault("HSA_OVERRIDE_GFX_VERSION", "10.3.0")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 import argparse

@@ -1,8 +1,4 @@
 """Basic BF16 smoke test. Passing is not a guarantee of full model compatibility."""
-import os
-
-os.environ.setdefault("HSA_OVERRIDE_GFX_VERSION", "10.3.0")
-
 import torch
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel

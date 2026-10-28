@@ -29,6 +29,27 @@ bash scripts/setup.sh all     # everything
 Image and video each get their own environment in `.venvs/`, because they need different
 `diffusers` versions. Chat works without either of them.
 
+### Other ROCm GPUs
+
+Image and video setup checks which AMD GPU you have (with `rocminfo`) and saves what it needs in
+`.venvs/gpu.env`, which `start.sh` loads. Cards ROCm supports get nothing extra. RDNA2 cards it
+doesn't support, like my RX 6700 XT (gfx1031), get `HSA_OVERRIDE_GFX_VERSION=10.3.0`. To pick
+it yourself, or to redo only this step:
+
+```sh
+bash scripts/setup.sh gpu                     # detect again
+bash scripts/setup.sh gpu --override 10.3.0   # force an override
+bash scripts/setup.sh gpu --no-override       # force none
+```
+
+The `--override`/`--no-override` flags work on `image`, `video` and `all` too. PyTorch is the
+ROCm 7.1 build, which brings its own ROCm libraries but needs a recent enough AMD driver. The
+memory settings are made for 12 GB: bigger cards work (just not as fast as they could), and
+smaller ones may run out of memory.
+
+**Updating an older install:** run `bash scripts/setup.sh gpu` once and restart, since the
+override used to be built into the scripts.
+
 ## Accounts
 
 The first visit asks you to create the admin account; anything saved before accounts existed
@@ -225,4 +246,5 @@ defaults, the users and backups. Your own settings follow you to every device.
   you close the page; the sidebar shows its progress.
 - Each generation's full output is saved beside the file as a `.log`.
 - `generators/image/` and `generators/video/` are the scripts from my image and video projects
-  (in `base_reference/`), and can still be run on their own with `--help`.
+  (in `base_reference/`), and can still be run on their own with `--help` (load
+  `.venvs/gpu.env` first, e.g. `set -a; . .venvs/gpu.env; set +a`).
