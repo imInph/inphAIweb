@@ -14,12 +14,17 @@ DEFAULTS = {
     'anime': {'steps': 28, 'guidance': 6.0, 'negative_prompt': 'bad quality, worst quality, lowres, blurry, text, watermark'},
     'realistic': {'steps': 9, 'guidance': 0.0, 'negative_prompt': ''},
 }
+# IP-Adapter weights for a reference image (anime only). 'plus' uses the image's patch features
+# and keeps more of a character; 'base' only its overall look.
+ADAPTERS = {'plus': 'ip-adapter-plus_sdxl_vit-h.safetensors', 'base': 'ip-adapter_sdxl_vit-h.safetensors'}
+REFERENCE_STRENGTH = 0.6
 
 
 def validate(data):
     if not isinstance(data, dict):
         raise ValueError('Send a JSON object')
-    allowed = {'model', 'prompt', 'negative_prompt', 'width', 'height', 'steps', 'guidance', 'seed'}
+    allowed = {'model', 'prompt', 'negative_prompt', 'width', 'height', 'steps', 'guidance', 'seed',
+               'reference', 'reference_strength'}
     if set(data) - allowed:
         raise ValueError('Unknown setting: ' + ', '.join(sorted(set(data) - allowed)))
     model = data.get('model', 'anime')
@@ -44,6 +49,18 @@ def validate(data):
         raise ValueError('guidance must be a number from 0 to 12')
     if model == 'realistic' and (settings['guidance'] != 0 or settings['negative_prompt']):
         raise ValueError('Z-Image-Turbo uses guidance 0 and no negative prompt')
+    if 'reference' in settings:
+        reference = settings['reference']
+        if not isinstance(reference, str) or not reference or len(reference) > 1000 or '\x00' in reference:
+            raise ValueError('reference must be the path of an image file')
+        if model != 'anime':
+            raise ValueError('Reference images work with the anime model only')
+        settings.setdefault('reference_strength', REFERENCE_STRENGTH)
+        value = settings['reference_strength']
+        if type(value) not in (int, float) or not 0 <= value <= 1 or not math.isfinite(value):
+            raise ValueError('reference_strength must be a number from 0 to 1')
+    elif 'reference_strength' in settings:
+        raise ValueError('reference_strength needs a reference image')
     return settings
 
 
@@ -51,7 +68,7 @@ def event(stage, **details):
     print('\nIMAGE_PROGRESS ' + json.dumps({'stage': stage, **details}), flush=True)
 
 
-def generate(settings, output_path):
+def generate(settings, output_path, adapter='plus'):
     import numpy as np
     import torch
     from torch.nn.attention import SDPBackend, sdpa_kernel
@@ -68,6 +85,12 @@ def generate(settings, output_path):
             local_files_only=True, add_watermarker=False,
         )
         pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+        if 'reference' in settings:
+            event('loading_reference')
+            # Before offloading is set up, so the image encoder is offloaded with the rest.
+            pipe.load_ip_adapter(str(MODELS / 'ip-adapter'), subfolder='sdxl_models', weight_name=ADAPTERS[adapter],
+                                 image_encoder_folder='models/image_encoder', local_files_only=True)
+            pipe.set_ip_adapter_scale(settings['reference_strength'])
         pipe.enable_model_cpu_offload()
     else:
         pipe = ZImagePipeline.from_pretrained(
@@ -102,6 +125,10 @@ def generate(settings, output_path):
                   output_type='np')
     if settings['model'] == 'anime':
         kwargs['negative_prompt'] = settings['negative_prompt']
+    if 'reference' in settings:
+        from PIL import Image
+        with Image.open(settings['reference']) as reference:
+            kwargs['ip_adapter_image'] = reference.convert('RGB')
     event('generating', completed_steps=0, total_steps=settings['steps'])
     torch.cuda.reset_peak_memory_stats()
     # The known-working backend on this RDNA2/ROCm installation.
@@ -118,6 +145,8 @@ def generate(settings, output_path):
                'total_seconds': round(time.monotonic() - start, 2),
                'peak_vram_gib': round(torch.cuda.max_memory_allocated() / 1024**3, 2),
                'gpu': torch.cuda.get_device_name(0), 'torch': torch.__version__}
+    if 'reference' in settings:
+        metrics['adapter'] = adapter
     output_path.with_suffix('.json').write_text(json.dumps(metrics, indent=2) + '\n')
     event('complete', file_path=str(output_path), **{k:v for k,v in metrics.items() if k != 'settings'})
     print(f'Saved image: {output_path}', flush=True)
@@ -133,11 +162,17 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int)
     parser.add_argument('--guidance', type=float)
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--reference', help='an image whose character or style to borrow (anime only)')
+    parser.add_argument('--reference-strength', type=float, help=f'0 to 1, default {REFERENCE_STRENGTH}')
+    parser.add_argument('--adapter', choices=ADAPTERS, default='plus', help=argparse.SUPPRESS)
     parser.add_argument('--output', type=Path, default=ROOT.parents[1] / 'data' / 'outputs' / 'images' / f'image-{time.time_ns()}.png')
     args = vars(parser.parse_args())
     output = args.pop('output')
+    adapter = args.pop('adapter')
     try:
         settings = validate({key:value for key,value in args.items() if value is not None})
     except ValueError as error:
         parser.error(str(error))
-    generate(settings, output)
+    if 'reference' in settings and not Path(settings['reference']).is_file():
+        parser.error(f"No reference image at {settings['reference']}")
+    generate(settings, output, adapter)

@@ -42,6 +42,10 @@ STEP_BAR = re.compile(r'(\d+)/(\d+) \[')
 
 
 def validate_image(data):
+    # The generator takes any file path as a reference; from the site that would let anyone
+    # use any file on the server, so the site doesn't pass references through (yet).
+    if isinstance(data, dict) and ({'reference', 'reference_strength'} & set(data)):
+        raise ValueError('Reference images are not available from the site yet')
     return image_script.validate(data)
 
 
