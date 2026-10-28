@@ -57,8 +57,32 @@ for (const kind of ["image", "video"]) {
 $("videoFrames").addEventListener("change", updateVideoLength);
 $("videoFps").addEventListener("change", updateVideoLength);
 
+for (const kind of ["image", "video"]) {
+    $(`${kind}Seed`).addEventListener("change", event => {
+        const custom = $(`${kind}SeedCustom`);
+        custom.hidden = event.target.value !== "custom";
+        if (!custom.hidden) custom.focus();
+    });
+}
+
+// The seed to send, or throws with a message for the person if a custom one isn't usable.
 export function seedFrom(select) {
-    return select.value === "random" ? Math.floor(Math.random() * 2 ** 31) : Number(select.value);
+    if (select.value === "random") return Math.floor(Math.random() * 2 ** 31);
+    if (select.value !== "custom") return Number(select.value);
+    const text = $(`${select.id}Custom`).value.trim();
+    // Larger numbers would lose digits on the way to the server.
+    if (!/^\d+$/.test(text) || Number(text) > Number.MAX_SAFE_INTEGER) {
+        throw new Error(`Enter a custom seed: a whole number from 0 to ${Number.MAX_SAFE_INTEGER}.`);
+    }
+    return Number(text);
+}
+
+function setSeed(kind, seed) {
+    const select = $(`${kind}Seed`), custom = $(`${kind}SeedCustom`);
+    const preset = [...select.options].some(option => option.value === String(seed) && option.value !== "custom");
+    select.value = preset ? String(seed) : "custom";
+    custom.value = preset ? "" : seed;
+    custom.hidden = preset;
 }
 
 export function generationSettings(kind) {
@@ -101,7 +125,15 @@ async function notify(job) {
 }
 
 export async function generate(kind) {
-    const settings = generationSettings(kind);
+    let settings;
+    try {
+        settings = generationSettings(kind);
+    } catch (error) {
+        state.startErrors[kind] = error.message;
+        renderJob();
+        $(`${kind}SeedCustom`).focus();
+        return;
+    }
     if (!settings.prompt) {
         $(`${kind}Prompt`).focus();
         return;
@@ -319,13 +351,13 @@ export function reuseSettings(kind, s) {
         updateImageNegative();
         setSelect($("imageResolution"), `${s.width}x${s.height}`);
         setSelect($("imageSteps"), s.steps);
-        setSelect($("imageSeed"), s.seed);
+        setSeed("image", s.seed);
     } else {
         setSelect($("videoResolution"), `${s.width}x${s.height}`);
         setSelect($("videoFrames"), s.frames);
         setSelect($("videoSteps"), s.steps);
         setSelect($("videoFps"), s.fps);
-        setSelect($("videoSeed"), s.seed);
+        setSeed("video", s.seed);
         updateVideoLength();
     }
     $(`view-${kind}s`).scrollTop = 0;

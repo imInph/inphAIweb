@@ -139,6 +139,7 @@ label { display: block; }
 label > span { display: block; margin-bottom: 5px; font-size: .8rem; font-weight: 550; color: var(--text-dim); }
 .field-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .field-row > label { flex: 1 1 150px; }
+.seed-custom { margin-top: 8px; }
 :focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 
 /* ==========================================================================
