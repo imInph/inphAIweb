@@ -180,10 +180,12 @@ label > span { display: block; margin-bottom: 5px; font-size: .8rem; font-weight
     border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px;
 }
 .side-head {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; gap: 2px;
     padding: 0 4px 6px 12px; font-size: .72rem; font-weight: 650; letter-spacing: .06em;
     text-transform: uppercase; color: var(--text-faint);
 }
+/* The label takes the room, so the buttons sit together on the right. */
+.side-head > span { flex: 1; }
 .chat-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
 .side-search { position: relative; display: block; margin: 0 2px 8px; }
 .side-search .ico { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
