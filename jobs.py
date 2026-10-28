@@ -13,9 +13,11 @@ import threading
 import time
 import shutil
 import uuid
+import hashlib
 import llm
 import settings
 import store
+import uploads
 
 ROOT = Path(__file__).resolve().parent
 OUTPUTS = store.DATA / 'outputs'
@@ -31,6 +33,10 @@ spec = importlib.util.spec_from_file_location('generate_image', IMAGE_SCRIPT)
 image_script = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(image_script)
 IMAGE_DEFAULTS = image_script.DEFAULTS
+# Reference images for the anime model, named by their content, in a folder per person.
+REFERENCES = OUTPUTS / 'references'
+REFERENCE_FILE = re.compile(r'references/(\d+)/[0-9a-f]{64}\.(?:png|jpg|webp)')
+REFERENCE_EXTENSIONS = {'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp'}
 VIDEO_DEFAULTS = {'width': 640, 'height': 384, 'frames': 33, 'steps': 50, 'guidance': 5.0, 'seed': 42, 'fps': 24}
 
 lines = deque(maxlen=200)        # output of the running job
@@ -41,12 +47,35 @@ wake = threading.Event()
 STEP_BAR = re.compile(r'(\d+)/(\d+) \[')
 
 
-def validate_image(data):
-    # The generator takes any file path as a reference; from the site that would let anyone
-    # use any file on the server, so the site doesn't pass references through (yet).
-    if isinstance(data, dict) and ({'reference', 'reference_strength'} & set(data)):
-        raise ValueError('Reference images are not available from the site yet')
+def validate_image(data, user_id=None):
+    """Image settings for the queue. A reference must be one this person saved with
+    save_reference() (the generator itself would take any file on the server); without a
+    user_id, as from chat, references aren't allowed at all."""
+    if isinstance(data, dict) and 'reference' in data:
+        match = isinstance(data['reference'], str) and REFERENCE_FILE.fullmatch(data['reference'])
+        if user_id is None:
+            raise ValueError('Reference images only work from the Images page')
+        if not match or int(match.group(1)) != user_id or not (OUTPUTS / data['reference']).is_file():
+            raise ValueError('That reference image is gone; add it again')
     return image_script.validate(data)
+
+
+def save_reference(user_id, data):
+    """Keep an image to use as a reference; returns its path under outputs/."""
+    mime = uploads.image_type(data[:16])
+    if mime is None:
+        raise ValueError('A reference must be a PNG, JPEG or WebP image')
+    name = f'references/{user_id}/{hashlib.sha256(data).hexdigest()}.{REFERENCE_EXTENSIONS[mime]}'
+    path = OUTPUTS / name
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    return name
+
+
+def reference_owner(file):
+    match = REFERENCE_FILE.fullmatch(file)
+    return int(match.group(1)) if match else None
 
 
 def validate_video(data):
@@ -164,7 +193,9 @@ def command_for(kind, params):
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{params['model']}-{time.time_ns()}.png"
         command = [PYTHON[kind], '-u', str(IMAGE_SCRIPT), f'--output={path}']
-        command += [f"--{key.replace('_', '-')}={value}" for key, value in params.items()]
+        # A reference is saved as its path under outputs/, so the gallery and Reuse can show it.
+        command += [f"--{key.replace('_', '-')}={OUTPUTS / value if key == 'reference' else value}"
+                    for key, value in params.items()]
         return command, path.with_suffix('.log'), lambda: path
     (OUTPUTS / 'videos').mkdir(parents=True, exist_ok=True)
     folder = Path(tempfile.mkdtemp(prefix='run-', dir=OUTPUTS / 'videos'))

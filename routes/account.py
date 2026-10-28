@@ -1,4 +1,5 @@
 """Signing in and out, your own account and preferences, and (for admins) managing users."""
+import shutil
 from flask import Blueprint, current_app, g, jsonify, request
 import auth
 import jobs
@@ -187,4 +188,5 @@ def remove_user(user_id):
             jobs.cancel(item['id'], g.user)
     for file in store.delete_user(user_id):
         jobs.remove_media_files(file)
+    shutil.rmtree(jobs.REFERENCES / str(user_id), ignore_errors=True)
     return '', 204

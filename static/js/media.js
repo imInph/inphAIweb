@@ -1,6 +1,6 @@
 import { openChat, renderMessages } from "./chat.js";
 import { renderPending } from "./attachments.js";
-import { $, api, autoGrow, button, imageLink, timeAgo } from "./util.js";
+import { $, api, autoGrow, button, imageLink, request, timeAgo, viewImage } from "./util.js";
 import { state } from "./state.js";
 
 export const STAGES = {
@@ -30,11 +30,65 @@ export function updateVideoLength() {
 }
 
 export function updateImageNegative() {
-    // Z-Image-Turbo runs without a negative prompt; generate_image.py rejects one.
+    // Z-Image-Turbo runs without a negative prompt or a reference; generate_image.py rejects both.
     const realistic = $("imageModel").value === "realistic";
     $("imageNegative").disabled = realistic;
     $("imageNegativeNote").textContent = realistic ? "· not used by Z-Image-Turbo" : "";
+    $("imageReferenceRow").hidden = realistic;
 }
+
+// The anime model's reference image: {reference, url} once the server has kept it, or null.
+let reference = null;
+
+function showReference(chosen, strength) {
+    reference = chosen;
+    for (const id of ["imageReferenceThumb", "imageReferenceRemove", "imageReferenceStrengthRow"]) $(id).hidden = !chosen;
+    $("imageReferenceAdd").hidden = Boolean(chosen);
+    if (chosen) $("imageReferenceImage").src = chosen.url;
+    else $("imageReferenceImage").removeAttribute("src");
+    if (strength !== undefined) $("imageReferenceStrength").value = strength;
+    $("imageReferenceStrengthValue").textContent = Number($("imageReferenceStrength").value).toFixed(2);
+}
+
+// From a file (FormData) or a gallery image ({media_id}).
+async function addReference(body) {
+    const add = $("imageReferenceAdd");
+    add.disabled = true;
+    add.textContent = "Adding...";
+    state.startErrors.image = null;
+    try {
+        if (body instanceof FormData) {
+            const response = await request("/api/references", { method: "POST", body });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || `Couldn't add the reference (${response.status})`);
+            showReference(result);
+        } else {
+            showReference(await api("/api/references", { method: "POST", body }));
+        }
+    } catch (error) {
+        state.startErrors.image = error.message;
+    } finally {
+        add.disabled = false;
+        add.textContent = "Add reference";
+        renderJob();
+    }
+}
+
+$("imageReferenceAdd").addEventListener("click", () => $("imageReferenceFile").click());
+$("imageReferenceFile").addEventListener("change", event => {
+    const [file] = event.target.files;
+    event.target.value = "";
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file, file.name);
+    addReference(form);
+});
+$("imageReferenceRemove").addEventListener("click", () => showReference(null));
+$("imageReferenceThumb").addEventListener("click", event => {
+    event.preventDefault();
+    viewImage(reference.url, "Reference image");
+});
+$("imageReferenceStrength").addEventListener("input", () => showReference(reference));
 
 export function fillNegatives(force = false) {
     if (!state.me) return;
@@ -91,6 +145,10 @@ export function generationSettings(kind) {
         const settings = { model: $("imageModel").value, prompt: $("imagePrompt").value.trim(), width, height,
                            steps: Number($("imageSteps").value), seed: seedFrom($("imageSeed")) };
         if (settings.model === "anime") settings.negative_prompt = $("imageNegative").value.trim();
+        if (settings.model === "anime" && reference) {
+            settings.reference = reference.reference;
+            settings.reference_strength = Number($("imageReferenceStrength").value);
+        }
         return settings;
     }
     const [width, height] = $("videoResolution").value.split("x").map(Number);
@@ -309,12 +367,12 @@ export async function loadGallery(kind) {
         caption.append(Object.assign(document.createElement("p"), { textContent: item.prompt, title: item.prompt }));
         const s = item.settings;
         const details = kind === "image"
-            ? `${s.model} · ${s.width}×${s.height} · ${s.steps} steps · seed ${s.seed}`
+            ? `${s.model} · ${s.width}×${s.height} · ${s.steps} steps · seed ${s.seed}${s.reference ? ` · reference ${s.reference_strength}` : ""}`
             : `${s.width}×${s.height} · ${s.frames} frames · ${s.fps} fps · seed ${s.seed}`;
         caption.append(Object.assign(document.createElement("div"), { className: "details", textContent: `${details} · ${timeAgo(item.created_at)}` }));
         const actions = Object.assign(document.createElement("div"), { className: "actions" });
         const download = Object.assign(document.createElement("a"), { className: "btn btn-ghost btn-sm", href: item.url, download: "", textContent: "Download" });
-        if (kind === "image") actions.append(button("Ask about this", () => askAbout(item)));
+        if (kind === "image") actions.append(button("Ask about this", () => askAbout(item)), button("Use as reference", () => useAsReference(item)));
         actions.append(button("Reuse", () => reuseSettings(kind, s)), download, button("Delete", async () => {
             if (!confirm(`Delete this ${kind}?`)) return;
             await api(`/api/media/${item.id}`, { method: "DELETE" }).catch(error => alert(error.message));
@@ -349,6 +407,7 @@ export function reuseSettings(kind, s) {
         setSelect($("imageResolution"), `${s.width}x${s.height}`);
         setSelect($("imageSteps"), s.steps);
         setSeed("image", s.seed);
+        showReference(s.reference ? { reference: s.reference, url: `/media/${s.reference}` } : null, s.reference_strength ?? 0.6);
     } else {
         setSelect($("videoResolution"), `${s.width}x${s.height}`);
         setSelect($("videoFrames"), s.frames);
@@ -359,6 +418,16 @@ export function reuseSettings(kind, s) {
     }
     $(`view-${kind}s`).scrollTop = 0;
     prompt.focus();
+}
+
+async function useAsReference(item) {
+    if ($("imageModel").value !== "anime") {
+        $("imageModel").value = "anime";
+        updateImageSteps();
+        updateImageNegative();
+    }
+    $("view-images").scrollTop = 0;
+    await addReference({ media_id: item.id });
 }
 
 async function askAbout(item) {

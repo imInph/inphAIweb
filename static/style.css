@@ -140,6 +140,13 @@ label > span { display: block; margin-bottom: 5px; font-size: .8rem; font-weight
 .field-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .field-row > label { flex: 1 1 150px; }
 .seed-custom { margin-top: 8px; }
+.reference-label { display: block; margin-bottom: 5px; font-size: .8rem; font-weight: 550; color: var(--text-dim); }
+.reference-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.reference-thumb { flex: none; display: block; width: 48px; height: 48px; border-radius: var(--radius-sm); overflow: hidden; background: var(--fill-2); }
+.reference-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.reference-strength { flex: 1 1 180px; display: flex; align-items: center; gap: 10px; }
+.reference-strength > span { margin: 0; white-space: nowrap; }
+.reference-strength output { display: inline-block; min-width: 2.2em; font-variant-numeric: tabular-nums; }
 :focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 
 /* ==========================================================================

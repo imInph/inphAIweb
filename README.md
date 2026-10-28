@@ -185,6 +185,20 @@ Then switch on its JSON output: in `~/searxng/settings.yml` find `search:` → `
 are admin settings (Settings → Web search). Only admins can make the server open pages on your own
 network (so nobody can point it at your router or the LLM servers).
 
+## Reference images
+
+With the anime model, **Add reference** on the Images page (or **Use as reference** on a gallery
+image) gives it a picture to borrow from: a character's hair, eyes and outfit, or a style. Your
+prompt still decides the scene. **Strength** sets how much it borrows; about 0.6 works well, and
+lower keeps more of your prompt. It uses an IP-Adapter, about 3 GB, which `setup.sh image`
+downloads. On an older install, fetch it with:
+
+```sh
+.venvs/image/bin/python generators/image/download_models.py --only ip-adapter
+```
+
+Your reference images are kept in `data/outputs/references/` and only you can see them.
+
 ## Images and videos from a chat
 
 Start a message with `/image` (anime, WAI-Illustrious), `/photo` (realistic, Z-Image-Turbo) or

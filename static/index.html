@@ -181,6 +181,19 @@
                         <label><span>Negative prompt <em class="hint-inline" id="imageNegativeNote"></em></span>
                             <textarea class="negative-prompt" id="imageNegative" rows="1" maxlength="4000" placeholder="What to keep out of the image"></textarea>
                         </label>
+                        <div class="reference-row" id="imageReferenceRow">
+                            <span class="reference-label">Reference image <em class="hint-inline">· borrows its character or style</em></span>
+                            <div class="reference-pick">
+                                <button class="btn btn-sm" type="button" id="imageReferenceAdd">Add reference</button>
+                                <a class="reference-thumb" id="imageReferenceThumb" href="#" hidden><img id="imageReferenceImage" alt="Reference image"></a>
+                                <button class="btn btn-ghost btn-sm" type="button" id="imageReferenceRemove" hidden>Remove</button>
+                                <label class="reference-strength" id="imageReferenceStrengthRow" hidden>
+                                    <span>Strength <output id="imageReferenceStrengthValue">0.60</output></span>
+                                    <input type="range" id="imageReferenceStrength" min="0" max="1" step="0.05" value="0.6">
+                                </label>
+                            </div>
+                            <input type="file" id="imageReferenceFile" accept="image/png,image/jpeg,image/webp" hidden>
+                        </div>
                         <div class="field-row">
                             <label><span>Model</span>
                                 <select id="imageModel">

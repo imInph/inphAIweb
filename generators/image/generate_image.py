@@ -14,8 +14,8 @@ DEFAULTS = {
     'anime': {'steps': 28, 'guidance': 6.0, 'negative_prompt': 'bad quality, worst quality, lowres, blurry, text, watermark'},
     'realistic': {'steps': 9, 'guidance': 0.0, 'negative_prompt': ''},
 }
-# IP-Adapter weights for a reference image (anime only). 'plus' uses the image's patch features
-# and keeps more of a character; 'base' only its overall look.
+# IP-Adapter weights for a reference image (anime only). 'base' is what the site uses: on WAI,
+# 'plus' (patch features) wrecked images above a strength of about 0.3 in testing.
 ADAPTERS = {'plus': 'ip-adapter-plus_sdxl_vit-h.safetensors', 'base': 'ip-adapter_sdxl_vit-h.safetensors'}
 REFERENCE_STRENGTH = 0.6
 
@@ -68,7 +68,7 @@ def event(stage, **details):
     print('\nIMAGE_PROGRESS ' + json.dumps({'stage': stage, **details}), flush=True)
 
 
-def generate(settings, output_path, adapter='plus'):
+def generate(settings, output_path, adapter='base'):
     import numpy as np
     import torch
     from torch.nn.attention import SDPBackend, sdpa_kernel
@@ -164,7 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--reference', help='an image whose character or style to borrow (anime only)')
     parser.add_argument('--reference-strength', type=float, help=f'0 to 1, default {REFERENCE_STRENGTH}')
-    parser.add_argument('--adapter', choices=ADAPTERS, default='plus', help=argparse.SUPPRESS)
+    parser.add_argument('--adapter', choices=ADAPTERS, default='base', help=argparse.SUPPRESS)
     parser.add_argument('--output', type=Path, default=ROOT.parents[1] / 'data' / 'outputs' / 'images' / f'image-{time.time_ns()}.png')
     args = vars(parser.parse_args())
     output = args.pop('output')
