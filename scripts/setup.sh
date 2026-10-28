@@ -48,8 +48,10 @@ setup_gpu_env() {
         OVERRIDE=''
         rocminfo="$(command -v rocminfo || echo /opt/rocm/bin/rocminfo)"
         if [[ -x "$rocminfo" ]]; then
-            # Every GPU, so a machine with an integrated one is judged on all of them.
-            gfx="$("$rocminfo" 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | sort -u | tr '\n' ' ' || true)"
+            # Every GPU, so a machine with an integrated one is judged on all of them. Only the
+            # agents' "Name: gfx1031" lines, not ISA names like amdgcn-amd-amdhsa--gfx10-3-generic.
+            gfx="$("$rocminfo" 2>/dev/null | grep -E '^[[:space:]]*Name:[[:space:]]+gfx[0-9a-f]+[[:space:]]*$' \
+                | awk '{print $2}' | sort -u | tr '\n' ' ' || true)"
             gfx="${gfx% }"
         fi
         if [[ -z "$gfx" ]]; then
