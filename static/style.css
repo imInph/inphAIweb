@@ -737,6 +737,24 @@ dialog.shortcuts dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 1
 dialog.shortcuts dt { white-space: nowrap; }
 dialog.shortcuts dd { margin: 0; font-size: .88rem; color: var(--text-dim); }
 
+/* A gallery or chat image, full size over the page */
+dialog.image-viewer {
+    max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 0; overflow: hidden;
+    color: var(--text); background-color: var(--glass-bg-strong);
+}
+dialog.image-viewer[open] { display: flex; flex-direction: column; }
+dialog.image-viewer::backdrop { background: rgba(0,0,0,.6); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+dialog.image-viewer img {
+    display: block; align-self: center; width: auto; height: auto; min-height: 0; object-fit: contain; background: var(--fill-2);
+    max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px - 52px);
+}
+/* As wide as the image, however long the caption: it adds no width of its own. */
+.image-viewer-bar { display: flex; align-items: center; gap: 4px; padding: 8px 8px 8px 14px; width: 0; min-width: 100%; }
+.image-viewer-bar p {
+    flex: 1; min-width: 0; margin: 0; font-size: .82rem; color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* ==========================================================================
    Phones
    ========================================================================== */

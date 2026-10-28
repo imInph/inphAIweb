@@ -2,7 +2,7 @@ import { autoRead, readAloudButton } from "./voice.js";
 import { modelCapabilities } from "./options.js";
 import { askToNotify, jobMessage, pollJob, progressBar } from "./media.js";
 import { renderChatKnowledge, sourcesElement } from "./knowledge.js";
-import { $, api, autoGrow, button, copyText, icon, iconButton, request, storageGet, storageSet } from "./util.js";
+import { $, api, autoGrow, button, copyText, icon, iconButton, imageLink, request, storageGet, storageSet } from "./util.js";
 import { state } from "./state.js";
 import { chatKey, pickModel, selectedModel } from "./models.js";
 import { loadChats, renderChatList } from "./chats.js";
@@ -94,9 +94,7 @@ function filesElement(files) {
             return Object.assign(document.createElement("video"), { className: "message-video", src: file.url, controls: true, preload: "metadata", loop: true });
         }
         if (file.kind !== "image") return fileChip(file);
-        const link = Object.assign(document.createElement("a"), { className: "image-file", href: file.url || file.preview, target: "_blank" });
-        link.append(Object.assign(document.createElement("img"), { src: file.url || file.preview, alt: file.name, loading: "lazy" }));
-        return link;
+        return imageLink(file.url || file.preview, file.name, "image-file");
     }));
     return list;
 }

@@ -57,6 +57,37 @@ export function iconButton(name, label, onClick) {
     return element;
 }
 
+// An image that opens full size in a pop-up. It stays a real link, so Ctrl/⌘-click and middle-click
+// still open it in a new tab.
+export function imageLink(src, caption, className = "") {
+    const link = Object.assign(document.createElement("a"), { className, href: src, target: "_blank" });
+    link.append(Object.assign(document.createElement("img"), { src, alt: caption, loading: "lazy" }));
+    link.addEventListener("click", event => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        viewImage(src, caption);
+    });
+    return link;
+}
+
+export function viewImage(src, caption) {
+    const viewer = $("imageViewer");
+    $("imageViewerImage").src = src;
+    $("imageViewerImage").alt = caption;
+    $("imageViewerCaption").textContent = caption;
+    $("imageViewerCaption").title = caption;
+    $("imageViewerDownload").href = src;
+    viewer.showModal();
+}
+
+$("imageViewerClose").addEventListener("click", () => $("imageViewer").close());
+// A click outside the image and its bar lands on the dialog itself.
+$("imageViewer").addEventListener("click", event => { if (event.target === $("imageViewer")) $("imageViewer").close(); });
+// "close" arrives a moment later, maybe after another image has already been opened.
+$("imageViewer").addEventListener("close", () => {
+    if (!$("imageViewer").open) $("imageViewerImage").removeAttribute("src");
+});
+
 export function autoGrow(textarea) {
     textarea.style.height = "auto";
     textarea.style.height = textarea.scrollHeight + "px";

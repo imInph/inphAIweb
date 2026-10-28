@@ -1,6 +1,6 @@
 import { openChat, renderMessages } from "./chat.js";
 import { renderPending } from "./attachments.js";
-import { $, api, autoGrow, button, timeAgo } from "./util.js";
+import { $, api, autoGrow, button, imageLink, timeAgo } from "./util.js";
 import { state } from "./state.js";
 
 export const STAGES = {
@@ -301,10 +301,7 @@ export async function loadGallery(kind) {
         const card = Object.assign(document.createElement("div"), { className: "card media-card" });
         let media;
         if (kind === "image") {
-            media = Object.assign(document.createElement("img"), { src: item.url, alt: item.prompt, loading: "lazy" });
-            const link = Object.assign(document.createElement("a"), { href: item.url, target: "_blank" });
-            link.append(media);
-            media = link;
+            media = imageLink(item.url, item.prompt);
         } else {
             media = Object.assign(document.createElement("video"), { src: item.url, controls: true, preload: "metadata", loop: true });
         }
